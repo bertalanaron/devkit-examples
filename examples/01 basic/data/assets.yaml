@@ -1,0 +1,9 @@
+planet_texture: "/textures/planets/mars.png"
+planet_model: "/models/sphere.obj"
+
+font: "/fonts/Roboto-Black.ttf"
+font_size: 64
+
+asteroid_count: 10000
+asteroid_texture: "/textures/Asteroid2b_Color.png"
+asteroid_model: "/models/asteroid_2b_lower.obj"

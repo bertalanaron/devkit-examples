@@ -1,0 +1,37 @@
+{
+  "name": "devkit",
+  "version": "0.1.0",
+  "dependencies": [
+    "sdl3",
+    "glad",
+    {
+      "name": "imgui",
+      "features": [
+        "opengl3-binding",
+        "sdl3-binding",
+        "docking-experimental"
+      ]
+    },
+    "glm",
+    "stb",
+    "nlohmann-json",
+    "spdlog",
+    "assimp",
+    "magic-enum",
+    "yaml-cpp",
+    "nativefiledialog-extended",
+    "ftxui",
+    "boost-dll",
+    "mini",
+    "jhasse-poly2tri",
+    "cereal",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}
