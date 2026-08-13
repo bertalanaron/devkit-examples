@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "builtin-baseline": "08f20962d32bb1cff9a0428c9c3667dd46960c09",
   "dependencies": [
-    "devkit"
+    "devkit",
+    "gtest"
   ]
 }
