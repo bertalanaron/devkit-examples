@@ -7,7 +7,16 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_TOOLCHAIN_FILE": "$env{HOME}/.vcpkg-clion/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "clion-debug",
+      "displayName": "CLion Debug",
+      "inherits": "vcpkg",
+      "binaryDir": "${sourceDir}/cmake-build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     }
   ],
@@ -15,6 +24,10 @@
     {
       "name": "vcpkg",
       "configurePreset": "vcpkg"
+    },
+    {
+      "name": "clion-debug",
+      "configurePreset": "clion-debug"
     }
   ]
 }
