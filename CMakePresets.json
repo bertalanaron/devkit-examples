@@ -39,17 +39,17 @@
     {
       "name": "debug",
       "configurePreset": "debug",
-      "jobs": 0
+      "jobs": 20
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "jobs": 0
+      "jobs": 20
     },
     {
       "name": "relwithdebinfo",
       "configurePreset": "relwithdebinfo",
-      "jobs": 0
+      "jobs": 20
     }
   ]
 }
