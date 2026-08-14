@@ -1,5 +1,10 @@
 asset_type: render_pass
 asset_data:
+  frame_buffers:
+    - name: back_buffer
+      config:
+        DepthTest: Enabled
+
   gui_uniforms:
     - type: bool
       name: u_useSpecular
@@ -15,35 +20,20 @@ asset_data:
     - draw_kind: clear
       output_buffer: back_buffer
       mask: Color|Depth
-      color: [0.2, 0.3, 1.0, 1.0]
+      # color: [0.2, 0.3, 1.0, 1.0]
+      color: [0,0,0,1.0]
 
     - draw_kind: single_mesh
       output_buffer: back_buffer
-      shader:
-        program: shaders/planet
-        uniform_textures:
-          - uniform: u_texture
-            texture: textures/planets/earth
-        uniforms:
-          - u_camera.VP
-          - u_camera.position
-          - u_camera.direction
-          - u_useSpecular
-          - u_M
-      mesh:
-        source: models/meshes/1
-        vertices: Position|Normal|TexCoords
-      transform:
-        position: [0, 0, 0]
-        scale: [1, 1, 1]
-
-    - draw_kind: single_mesh
-      output_buffer: back_buffer
+      gl_primitive: Lines
       shader:
         program: shaders/planet
         uniform_textures:
           - uniform: u_texture
             texture: textures/planets/mars
+            config:
+              MinFilter: Linear
+              MagFilter: Linear
         uniforms:
           - u_camera.VP
           - u_camera.position
@@ -54,4 +44,5 @@ asset_data:
         source: models/meshes/2
         vertices: Position|Normal|TexCoords
       transform:
-        position: [10,0,0]
+        position: [0, 0, 0]
+        scale: [1, 1, 1]

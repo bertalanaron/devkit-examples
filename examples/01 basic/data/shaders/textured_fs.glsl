@@ -62,5 +62,6 @@ void main()
 		// FragColor = vec4(norm, 1.0);
 	} else {
 		FragColor = texture(u_texture, UV) * d;
+		FragColor = vec4(Position, 1.0);
 	}
 }

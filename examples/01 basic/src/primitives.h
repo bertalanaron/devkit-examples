@@ -47,10 +47,16 @@ struct Transform {
 struct UniformTexture {
 	rfl::Rename<"uniform", std::string>           m_uniform;
 	rfl::Rename<"texture", std::filesystem::path> m_texture;
+	rfl::Rename<"config", std::optional<dk::gfx::Texture::Config>> m_config;
 
 	void bind_to_shader(dk::gfx::Shader& shader, RenderContext& ctx) const
 	{
 		auto& texture = ctx.assets[m_texture.get().string()].as<dk::gfx::Texture2D>();
+		if (m_config.get().has_value()) {
+			m_config.get()->for_each([&](const auto& property) {
+				texture.config(property);
+			});
+		}
 		shader.uniformTexture(m_uniform.get(), texture);
 	}
 };
@@ -77,6 +83,23 @@ struct MeshBinding {
 	dk::gfx::VertexFlags  vertices;
 };
 
+struct FrameBufferBinding {
+	rfl::Rename<"name", std::string>                                      m_name;
+	rfl::Rename<"config", std::optional<dk::gfx::FrameBuffer::Config>>   m_config;
+
+	void apply() const
+	{
+		if (m_name.get() != "back_buffer")
+			throw std::runtime_error("only back_buffer frame buffers are supported for now");
+
+		if (m_config.get().has_value()) {
+			m_config.get()->for_each([&](const auto& property) {
+				dk::gfx::backBuffer().config(property);
+			});
+		}
+	}
+};
+
 struct ClearDrawCall {
 	using Tag = rfl::Literal<"clear">;
 
@@ -99,6 +122,7 @@ struct SingleMeshDrawCall {
 	ShaderBinding            shader;
 	MeshBinding              mesh;
 	std::optional<Transform> transform;
+	dk::gfx::Primitive       gl_primitive;
 
 	void execute(RenderContext& ctx) const
 	{
@@ -115,15 +139,16 @@ struct SingleMeshDrawCall {
 		ctx.uniform_values["u_M"] = UniformValueBase::create_builtin(model);
 		shader.set_uniforms(ctx);
 
-		dk::gfx::backBuffer().render(program, mesh_mask.indices, dk::gfx::Primitive::Triangles);
+		dk::gfx::backBuffer().render(program, mesh_mask.indices, gl_primitive);
 	}
 };
 
 using DrawCall = rfl::TaggedUnion<"draw_kind", ClearDrawCall, SingleMeshDrawCall>;
 
 struct RenderPass {
-	std::vector<GuiUniform> gui_uniforms;
-	std::vector<DrawCall>   draw_calls;
+	std::vector<GuiUniform>         gui_uniforms;
+	std::vector<FrameBufferBinding> frame_buffers;
+	std::vector<DrawCall>           draw_calls;
 
 	void initialize_gui_uniforms(RenderContext& ctx) const
 	{
@@ -155,6 +180,8 @@ struct RenderPass {
 	{
 		ctx.update_builtin_uniforms();
 		initialize_gui_uniforms(ctx);
+		for (const auto& frame_buffer : frame_buffers)
+			frame_buffer.apply();
 		for (const auto& draw_call : draw_calls) {
 			rfl::visit([&](const auto& call) { call.execute(ctx); }, draw_call);
 		}
