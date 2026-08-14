@@ -1,0 +1,5 @@
+asset_type: shader
+asset_data:
+  source_location: external
+  vertex: ./instanced_mesh_vs.glsl
+  fragment: ./asteroid_fs.glsl

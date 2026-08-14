@@ -1,0 +1,35 @@
+asset_type: render_pass
+asset_data:
+  gui_uniforms:
+    - type: int
+      name: u_useSpecular
+      range: [0, 1]
+      step: 1
+      default: 0
+
+  draw_calls:
+    - draw_kind: ClearDrawCall
+      output_buffer: back_buffer
+      mask: color_depth
+      color: [0.2, 0.3, 1.0, 1.0]
+
+    - draw_kind: SingleMeshDrawCall
+      output_buffer: back_buffer
+      shader:
+        program: shaders/planet
+        uniform_textures:
+          - uniform: u_texture
+            texture: textures/planets/mercury
+        uniforms:
+          - u_camera.VP
+          - u_camera.position
+          - u_camera.direction
+          - u_useSpecular
+          - u_M
+      mesh:
+        source: models/meshes/1
+        vertices: Position | Normal | TexCoords
+      transform:
+        position: [0, 0, 0]
+        scale: [1, 2, 1]
+        rotation: [0.3, 0, 0]
