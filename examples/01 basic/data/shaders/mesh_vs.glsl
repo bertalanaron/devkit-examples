@@ -13,6 +13,7 @@ struct Camera {
 }; uniform Camera u_camera;
 
 uniform mat4 u_M;
+uniform float u_t;
 
 out vec3 Position;
 out vec3 Normal;
@@ -22,7 +23,8 @@ out vec3 Bitangent;
 
 void main()
 {
-    vec4 vM = vec4(vertex.xyz, 1.0) * u_M;
+    vec3 offset = vec3(sin(u_t), cos(u_t), 0);
+    vec4 vM = vec4(vertex.xyz + offset, 1.0) * u_M;
 
     gl_Position = vM * u_camera.VP;
     Position = vec3(vM.x / vM.w, vM.y / vM.w, vM.z / vM.w);

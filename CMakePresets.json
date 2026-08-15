@@ -38,18 +38,15 @@
   "buildPresets": [
     {
       "name": "debug",
-      "configurePreset": "debug",
-      "jobs": 20
+      "configurePreset": "debug"
     },
     {
       "name": "release",
-      "configurePreset": "release",
-      "jobs": 20
+      "configurePreset": "release"
     },
     {
       "name": "relwithdebinfo",
-      "configurePreset": "relwithdebinfo",
-      "jobs": 20
+      "configurePreset": "relwithdebinfo"
     }
   ]
 }

@@ -25,7 +25,7 @@ asset_data:
 
     - draw_kind: single_mesh
       output_buffer: back_buffer
-      gl_primitive: Lines
+      gl_primitive: Triangles
       shader:
         program: shaders/planet
         uniform_textures:
@@ -40,6 +40,7 @@ asset_data:
           - u_camera.direction
           - u_useSpecular
           - u_M
+          - u_t
       mesh:
         source: models/meshes/2
         vertices: Position|Normal|TexCoords
