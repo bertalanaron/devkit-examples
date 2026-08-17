@@ -18,6 +18,7 @@ void main()
 
     // Set the maximum chromatic aberration at the edges (you can adjust the strength here)
 	float factor = max(0.0, rand(vec2(u_t / 9999.0, 0.0)) - .7);
+	factor = .3;
     float maxSeparation = 0.3 * factor;  // Maximum amount of aberration at the edges
     float separation = maxSeparation * pow(dist, 2);  // Linear gradient of aberration strength
     

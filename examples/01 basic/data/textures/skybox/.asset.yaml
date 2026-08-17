@@ -1,0 +1,8 @@
+asset_type: cubemap
+asset_data:
+  left: ./left.png
+  right: ./right.png
+  top: ./top.png
+  bottom: ./bottom.png
+  front: ./front.png
+  back: ./back.png

@@ -26,6 +26,13 @@
     "jhasse-poly2tri",
     "cereal",
     {
+      "name": "reflectcpp",
+      "features": [
+        "yaml"
+      ]
+    },
+    "boost-bimap",
+    {
       "name": "vcpkg-cmake",
       "host": true
     },

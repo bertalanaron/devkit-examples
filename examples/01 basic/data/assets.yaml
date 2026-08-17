@@ -1,4 +1,4 @@
-planet_texture: "/textures/planets/mars.png"
+planet_texture: "/textures/planets/image.png"
 planet_model: "/models/sphere.obj"
 
 font: "/fonts/Roboto-Black.ttf"

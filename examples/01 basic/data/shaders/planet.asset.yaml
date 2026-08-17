@@ -1,0 +1,5 @@
+asset_type: shader
+asset_data:
+  source_location: external
+  vertex: ./mesh_vs.glsl
+  fragment: ./textured_fs.glsl
