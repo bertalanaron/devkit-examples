@@ -11,6 +11,19 @@
 #include <format>
 #include <stdexcept>
 
+struct RenderPassFactory : dk::io::assets::PODFactory<RenderPass> {
+	RenderPassFactory(RenderContext& render_context)
+		: m_render_context(render_context)
+	{ }
+
+	void modify(RenderPass& rp, dk::io::assets::ModificationContext& ctx) {
+		dk::io::assets::PODFactory<RenderPass>::modify(rp, ctx);
+		m_render_context.updated = true;
+	}
+
+	RenderContext& m_render_context;
+};
+
 RenderContext::RenderContext()
 	: assets(dk::io::assets::Yaml{}, ".asset.yaml")
 {
@@ -21,7 +34,7 @@ RenderContext::RenderContext()
 	assets.register_factory("cubemap", dk::io::assets::factories::CubemapFactory());
 	assets.register_factory("shader", dk::io::assets::factories::ShaderFactory());
 	assets.register_factory("scene", dk::io::assets::factories::SceneFactory());
-	assets.register_factory("render_pass", dk::io::assets::PODFactory<RenderPass>());
+	assets.register_factory("render_pass", RenderPassFactory(*this));
 }
 
 void RenderContext::begin_frame(const dk::io::Frame& current_frame)

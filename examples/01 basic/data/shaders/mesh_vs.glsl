@@ -24,6 +24,7 @@ out vec3 Bitangent;
 void main()
 {
     vec3 offset = vec3(sin(u_t), cos(u_t), 0);
+    offset = vec3(0);
     vec4 vM = vec4(vertex.xyz + offset, 1.0) * u_M;
 
     gl_Position = vM * u_camera.VP;

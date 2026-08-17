@@ -1,0 +1,4 @@
+asset_type: shader
+asset_data:
+  source_location: external
+  fragment: ../chromatic_aberration_fs.glsl

@@ -1,9 +1,36 @@
 asset_type: render_pass
 asset_data:
+  back_buffer:
+    name: back_buffer
+    config:
+      DepthTest: Enabled
+
   frame_buffers:
-    - name: back_buffer
+    - name: scene_buffer
       config:
-        DepthTest: Enabled
+        DepthTest: Disabled
+      attachments:
+        depth:
+          type: RenderBuffer
+          format: Depth24
+          channels: Depth
+          samples: 1 # optional, defaults to 1
+          # width and height are optional, size is set to window size when unspecified (and listens to window resize)
+        color:
+          0:
+            type: RenderBuffer
+            format: Unsigned8
+            channels: RGBA
+            samples: 1
+
+    - name: resolve_buffer
+      attachments:
+        color:
+          0:
+            type: Texture2D
+            format: Unsigned8
+            channels: RGBA
+            samples: 1
 
   gui_uniforms:
     - type: bool
@@ -17,19 +44,21 @@ asset_data:
       default: [1, 2, 3]
 
   draw_calls:
+    # Clear buffer used to render scene
     - draw_kind: clear
-      output_buffer: back_buffer
+      output_buffer: scene_buffer
       mask: Color|Depth
-      # color: [0.2, 0.3, 1.0, 1.0]
-      color: [0,0,0,1.0]
+      color: [.3,.3,.3,1.0]
 
+    # Render planet object in the scene buffer
     - draw_kind: single_mesh
-      output_buffer: back_buffer
+      output_buffer: scene_buffer
       gl_primitive: Triangles
       shader:
         program: shaders/planet
         uniform_textures:
-          - uniform: u_texture
+          - source: asset
+            uniform: u_texture
             texture: textures/planets/mars
             config:
               MinFilter: Linear
@@ -42,8 +71,64 @@ asset_data:
           - u_M
           - u_t
       mesh:
-        source: models/meshes/2
+        source: models/meshes/3
         vertices: Position|Normal|TexCoords
       transform:
         position: [0, 0, 0]
         scale: [1, 1, 1]
+    - draw_kind: single_mesh
+      output_buffer: scene_buffer
+      gl_primitive: Lines
+      shader:
+        program: shaders/planet
+        uniform_textures:
+          - source: asset
+            uniform: u_texture
+            texture: textures/planets/mars
+            config:
+              MinFilter: Linear
+              MagFilter: Linear
+        uniforms:
+          - u_camera.VP
+          - u_camera.position
+          - u_camera.direction
+          - u_useSpecular
+          - u_M
+          - u_t
+      mesh:
+        source: models/meshes/3
+        vertices: Position|Normal|TexCoords
+      transform:
+        position: [0, 0, 0]
+        scale: [1.03, 1.03, 1.03]
+
+    # Resolve scene buffer to resolve_buffer
+    - draw_kind: blit
+      input_buffer: scene_buffer
+      output_buffer: resolve_buffer
+      mask: Color # optional
+      # input_color_index: 1
+      # output_color_index: 0
+      # filter: Linear
+      # src_rect: { offset: [0, 0], size: [720, 480] }
+      # dst_rect: { offset: [0, 0], size: [720, 480] }
+
+    # Render to back buffer with an additional post process step
+    - draw_kind: post_process # draws a full screen quad
+      output_buffer: resolve_buffer
+      shader:
+        program: shaders/post_process/chromatic_aberration
+        uniform_textures:
+          - source: frame_buffer_attachment
+            uniform: u_texture
+            frame_buffer: resolve_buffer
+            attachment:
+              type: color
+              index: 0
+        uniforms:
+          - u_t
+
+    - draw_kind: blit
+      input_buffer: resolve_buffer
+      output_buffer: back_buffer
+  

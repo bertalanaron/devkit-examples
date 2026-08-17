@@ -31,4 +31,5 @@ struct RenderContext {
 	float                   time  = 0.f;
 	UniformValueCollection  uniform_values;
 	UniformValueCollection  gui_uniform_values;
+	bool                    updated = false;
 };
