@@ -5,23 +5,35 @@ asset_data:
     config:
       DepthTest: Enabled
 
+  cameras:
+    - name: default_camera
+      type: main
+      np: 0.1
+      fp: 500.0
+      fov: 1.0
+
   frame_buffers:
     - name: scene_buffer
       config:
-        DepthTest: Disabled
+        DepthTest: Enabled
+        Blend: Enabled
+        SrcBlendFactor: SrcAlpha
+        DstBlendFactor: OneMinusSrcAlpha
+        PointSize: 3
+        CullFace: Enabled
       attachments:
         depth:
           type: RenderBuffer
           format: Depth24
           channels: Depth
-          samples: 1 # optional, defaults to 1
+          samples: 4 # optional, defaults to 1
           # width and height are optional, size is set to window size when unspecified (and listens to window resize)
         color:
           0:
             type: RenderBuffer
             format: Unsigned8
-            channels: RGBA
-            samples: 1
+            channels: RGB
+            samples: 4
 
     - name: resolve_buffer
       attachments:
@@ -30,18 +42,25 @@ asset_data:
             type: Texture2D
             format: Unsigned8
             channels: RGBA
-            samples: 1
+
+    # Single-sample depth snapshot used by the water shader for intersection foam.
+    - name: scene_depth
+      attachments:
+        depth:
+          type: Texture2D
+          format: Depth24
+          channels: Depth
 
   gui_uniforms:
     - type: bool
       name: u_useSpecular
       default: false
 
-    - type: vec3
-      name: u_testVec
-      range: [0, 10]
-      step: 0.1
-      default: [1, 2, 3]
+    - type: float
+      name: u_tessLevel
+      range: [1, 64]
+      step: 1
+      default: 2
 
   draw_calls:
     # Clear buffer used to render scene
@@ -63,22 +82,23 @@ asset_data:
             config:
               MinFilter: Linear
               MagFilter: Linear
+        uniform_cameras:
+          - name: default_camera
+            uniform: u_camera
+            uniform_members: [VP, position, direction]
         uniforms:
-          - u_camera.VP
-          - u_camera.position
-          - u_camera.direction
           - u_useSpecular
           - u_M
           - u_t
       mesh:
-        source: models/meshes/3
+        source: models/space/meshes/3
         vertices: Position|Normal|TexCoords
       transform:
-        position: [0, 0, 0]
-        scale: [1, 1, 1]
+        position: [0, -3, 0]
+        scale: [3, 1, 3]
     - draw_kind: single_mesh
       output_buffer: scene_buffer
-      gl_primitive: Lines
+      gl_primitive: Triangles
       shader:
         program: shaders/planet
         uniform_textures:
@@ -88,19 +108,56 @@ asset_data:
             config:
               MinFilter: Linear
               MagFilter: Linear
+        uniform_cameras:
+          - name: default_camera
+            uniform: u_camera
+            uniform_members: [VP, position, direction]
         uniforms:
-          - u_camera.VP
-          - u_camera.position
-          - u_camera.direction
           - u_useSpecular
           - u_M
           - u_t
       mesh:
-        source: models/meshes/3
+        source: models/plane/meshes/0
         vertices: Position|Normal|TexCoords
       transform:
-        position: [0, 0, 0]
+        position: [0, -3, 0]
         scale: [1.03, 1.03, 1.03]
+
+    # Preserve opaque geometry depth in a sampleable texture before drawing water.
+    - draw_kind: blit
+      input_buffer: scene_buffer
+      output_buffer: scene_depth
+      mask: Depth
+      filter: Nearest
+
+    # Draw water
+    - draw_kind: single_mesh
+      output_buffer: scene_buffer
+      gl_primitive: Patches
+      shader:
+        program: shaders/water
+        uniform_textures:
+          - source: frame_buffer_attachment
+            uniform: u_sceneDepth
+            frame_buffer: scene_depth
+            attachment:
+              type: depth
+        config:
+          PatchVertices: 3
+        uniform_cameras:
+          - name: default_camera
+            uniform: u_camera
+            uniform_members: [VP, position, direction, np, fp]
+        uniforms:
+          - u_M
+          - u_t
+          - u_tessLevel
+      mesh:
+        source: models/plane/meshes/0
+        vertices: Position|Normal|TexCoords|Tangent|Bitangent
+      transform:
+        position: [0, 0, 0]
+        scale: [2, 2, 2]
 
     # Resolve scene buffer to resolve_buffer
     - draw_kind: blit
@@ -112,23 +169,59 @@ asset_data:
       # filter: Linear
       # src_rect: { offset: [0, 0], size: [720, 480] }
       # dst_rect: { offset: [0, 0], size: [720, 480] }
-
-    # Render to back buffer with an additional post process step
-    - draw_kind: post_process # draws a full screen quad
+    # Draw sky and distance fog
+    - draw_kind: post_process
       output_buffer: resolve_buffer
       shader:
-        program: shaders/post_process/chromatic_aberration
+        program: shaders/post_process/gradient_sky
         uniform_textures:
           - source: frame_buffer_attachment
-            uniform: u_texture
+            uniform: u_depth
+            frame_buffer: scene_depth
+            attachment:
+              type: depth
+          - source: frame_buffer_attachment
+            uniform: u_color
             frame_buffer: resolve_buffer
             attachment:
               type: color
               index: 0
-        uniforms:
-          - u_t
+        uniform_cameras:
+          - name: default_camera
+            uniform: u_camera
+            uniform_members: [nearPlane, farPlane]
+
+    # Debug scene depth
+    # - draw_kind: post_process
+    #   output_buffer: resolve_buffer
+    #   shader:
+    #     program: shaders/post_process/display_depth
+    #     uniform_textures:
+    #       - source: frame_buffer_attachment
+    #         uniform: u_depth
+    #         frame_buffer: scene_depth
+    #         attachment:
+    #           type: depth
+    #     uniforms:
+    #       - u_camera.nearPlane
+    #       - u_camera.farPlane
+
+
+    # Render to back buffer with an additional post process step
+    # - draw_kind: post_process # draws a full screen quad
+    #   output_buffer: resolve_buffer
+    #   shader:
+    #     program: shaders/post_process/chromatic_aberration
+    #     uniform_textures:
+    #       - source: frame_buffer_attachment
+    #         uniform: u_texture
+    #         frame_buffer: resolve_buffer
+    #         attachment:
+    #           type: color
+    #           index: 0
+    #     uniforms:
+    #       - u_t
 
     - draw_kind: blit
       input_buffer: resolve_buffer
       output_buffer: back_buffer
-  

@@ -7,15 +7,20 @@
 #include <devkit/gfx/shader.h>
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
+#include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <rfl/Skip.hpp>
 
@@ -202,17 +207,255 @@ struct FrameBufferBinding {
 	}
 };
 
+enum class CameraType { main, csm_sun };
+
+struct CameraBinding {
+	std::string name;
+	CameraType  type;
+	float       np = 0.1f;
+	float       fp = 100.f;
+	std::optional<float> fov;
+
+	// CSM-specific settings. The defaults keep a sun camera useful without
+	// requiring more fields than the camera definition itself.
+	std::optional<unsigned>  cascade_count;
+	std::optional<glm::vec3> direction;
+	std::optional<unsigned>  shadow_resolution;
+};
+
+struct CameraRuntime {
+	CameraType                       type;
+	dk::gfx::Camera                  camera;
+	std::vector<glm::mat4>            lightspace_matrices;
+	std::vector<std::unique_ptr<dk::gfx::FrameBuffer>> shadow_buffers;
+};
+
+inline std::string camera_member_name(std::string member)
+{
+	// Accept both `lightspaceM[0]` and the notation used in the original
+	// proposal, `u_lightspaceM[0]`.
+	if (member.starts_with("u_"))
+		member.erase(0, 2);
+	return member;
+}
+
+inline std::optional<std::size_t> lightspace_matrix_index(std::string_view member)
+{
+	constexpr std::string_view prefix = "lightspaceM[";
+	if (!member.starts_with(prefix) || member.back() != ']')
+		return std::nullopt;
+
+	const auto index_text = member.substr(prefix.size(), member.size() - prefix.size() - 1);
+	if (index_text.empty())
+		return std::nullopt;
+	try {
+		return std::stoul(std::string(index_text));
+	}
+	catch (const std::exception&) {
+		return std::nullopt;
+	}
+}
+
+inline float camera_ndc_depth(const dk::gfx::Camera& camera, float distance)
+{
+	if (camera.projection == dk::gfx::Camera::Projection::Orthographic)
+		return (2.f * distance - (camera.fp + camera.np)) / (camera.fp - camera.np);
+	return (camera.fp + camera.np - 2.f * camera.np * camera.fp / distance) /
+		(camera.fp - camera.np);
+}
+
+inline std::array<glm::vec3, 8> camera_frustum_corners(
+	const dk::gfx::Camera& camera,
+	float near_distance,
+	float far_distance)
+{
+	const auto inverse_vp = glm::inverse(camera.P() * camera.V());
+	std::array<glm::vec3, 8> result{};
+	std::size_t index = 0;
+	for (const auto distance : { near_distance, far_distance }) {
+		const auto ndc_z = camera_ndc_depth(camera, distance);
+		for (const auto x : { -1.f, 1.f }) {
+			for (const auto y : { -1.f, 1.f }) {
+				const auto clip = glm::vec4(x, y, ndc_z, 1.f);
+				const auto world = inverse_vp * clip;
+				result[index++] = glm::vec3(world) / world.w;
+			}
+		}
+	}
+	return result;
+}
+
+inline glm::mat4 make_lightspace_matrix(
+	const dk::gfx::Camera& main_camera,
+	const glm::vec3& sun_direction,
+	float near_distance,
+	float far_distance)
+{
+	const auto corners = camera_frustum_corners(main_camera, near_distance, far_distance);
+	glm::vec3 center(0.f);
+	for (const auto& corner : corners)
+		center += corner;
+	center /= static_cast<float>(corners.size());
+
+	const auto direction_length = glm::length(sun_direction);
+	if (direction_length <= std::numeric_limits<float>::epsilon())
+		throw std::runtime_error("csm_sun.direction must not be zero");
+	const auto direction = sun_direction / direction_length;
+	const auto light_position = center - direction * (far_distance - near_distance + 50.f);
+	const auto up = std::abs(glm::dot(direction, glm::vec3(0, 1, 0))) > 0.95f
+		? glm::vec3(1, 0, 0)
+		: glm::vec3(0, 1, 0);
+	const auto light_view = glm::lookAt(light_position, center, up);
+
+	glm::vec3 minimum(std::numeric_limits<float>::max());
+	glm::vec3 maximum(std::numeric_limits<float>::lowest());
+	for (const auto& corner : corners) {
+		const auto light_space = light_view * glm::vec4(corner, 1.f);
+		minimum = glm::min(minimum, glm::vec3(light_space));
+		maximum = glm::max(maximum, glm::vec3(light_space));
+	}
+
+	constexpr float padding = 10.f;
+	return glm::ortho(
+		minimum.x - padding, maximum.x + padding,
+		minimum.y - padding, maximum.y + padding,
+		minimum.z - padding, maximum.z + padding) * light_view;
+}
+
 struct RenderPassRuntime {
 	std::unordered_map<std::string, std::unique_ptr<dk::gfx::FrameBuffer>> frame_buffers;
+	std::unordered_map<std::string, CameraRuntime> cameras;
+
+	void initialize_cameras(const std::vector<CameraBinding>& bindings)
+	{
+		for (const auto& binding : bindings) {
+			const auto cascade_count = binding.cascade_count.value_or(3u);
+			const auto shadow_resolution = binding.shadow_resolution.value_or(1024u);
+			if (binding.name.empty())
+				throw std::runtime_error("camera name cannot be empty");
+			if (!(binding.np > 0.f) || !(binding.fp > binding.np))
+				throw std::runtime_error("camera '" + binding.name + "' must have 0 < np < fp");
+			if (binding.type == CameraType::csm_sun &&
+				(cascade_count == 0 || cascade_count > 4))
+				throw std::runtime_error("csm_sun.cascade_count must be between 1 and 4");
+			if (binding.type == CameraType::csm_sun && shadow_resolution == 0)
+				throw std::runtime_error("csm_sun.shadow_resolution must be positive");
+
+			CameraRuntime camera;
+			camera.type = binding.type;
+			if (binding.type == CameraType::csm_sun) {
+				camera.lightspace_matrices.resize(cascade_count);
+				camera.shadow_buffers.reserve(cascade_count);
+				for (unsigned cascade = 0; cascade < cascade_count; ++cascade) {
+					auto shadow_buffer = std::make_unique<dk::gfx::FrameBuffer>();
+					shadow_buffer->config(dk::gfx::FrameBuffer::DepthTest::Enabled);
+					shadow_buffer->config(dk::gfx::FrameBuffer::DepthFunc::Less);
+					shadow_buffer->config(dk::gfx::FrameBuffer::CullFace::Disabled);
+					shadow_buffer->depth = dk::gfx::Texture2D(
+						glm::ivec2(shadow_resolution),
+						dk::gfx::Channels::Depth,
+						dk::gfx::Format::Depth32F);
+					camera.shadow_buffers.push_back(std::move(shadow_buffer));
+				}
+			}
+
+			const auto [_, inserted] = cameras.emplace(binding.name, std::move(camera));
+			if (!inserted)
+				throw std::runtime_error("duplicate camera name '" + binding.name + "'");
+		}
+	}
+
+	void update_cameras(const std::vector<CameraBinding>& bindings, const RenderContext& ctx)
+	{
+		const CameraRuntime* main_runtime = nullptr;
+		for (const auto& binding : bindings) {
+			auto& runtime = camera(binding.name);
+			if (binding.type != CameraType::main)
+				continue;
+
+			runtime.camera = ctx.camera;
+			runtime.camera.np = binding.np;
+			runtime.camera.fp = binding.fp;
+			runtime.camera.fov = binding.fov.value_or(1.f);
+			main_runtime = &runtime;
+		}
+
+		const auto& source_camera = main_runtime ? main_runtime->camera : ctx.camera;
+		for (const auto& binding : bindings) {
+			if (binding.type != CameraType::csm_sun)
+				continue;
+			const auto cascade_count = binding.cascade_count.value_or(3u);
+			const auto direction = binding.direction.value_or(glm::vec3(-0.5f, -1.f, -0.25f));
+
+			auto& runtime = camera(binding.name);
+			runtime.camera = source_camera;
+			runtime.camera.position = source_camera.position;
+			runtime.camera.lookat = source_camera.lookat;
+			runtime.camera.np = binding.np;
+			runtime.camera.fp = binding.fp;
+			runtime.camera.fov = binding.fov.value_or(1.f);
+			runtime.lightspace_matrices.clear();
+			runtime.lightspace_matrices.reserve(cascade_count);
+
+			const auto lambda = 0.6f;
+			float previous_split = binding.np;
+			for (unsigned cascade = 0; cascade < cascade_count; ++cascade) {
+				const auto fraction = static_cast<float>(cascade + 1) / cascade_count;
+				const auto logarithmic_split = binding.np * std::pow(binding.fp / binding.np, fraction);
+				const auto uniform_split = binding.np + (binding.fp - binding.np) * fraction;
+				const auto split = logarithmic_split * lambda + uniform_split * (1.f - lambda);
+				runtime.lightspace_matrices.push_back(make_lightspace_matrix(
+					source_camera, direction, previous_split, split));
+				previous_split = split;
+			}
+		}
+	}
+
+	dk::gfx::FrameBuffer& camera_shadow_buffer(const std::string& name, std::size_t cascade) const
+	{
+		const auto& runtime = camera(name);
+		if (runtime.type != CameraType::csm_sun || cascade >= runtime.shadow_buffers.size())
+			throw std::runtime_error("camera '" + name + "' has no shadow cascade " + std::to_string(cascade));
+		return *runtime.shadow_buffers[cascade];
+	}
+
+	CameraRuntime& camera(const std::string& name)
+	{
+		const auto found = cameras.find(name);
+		if (found == cameras.end())
+			throw std::runtime_error("unknown camera '" + name + "'");
+		return found->second;
+	}
+
+	const CameraRuntime& camera(const std::string& name) const
+	{
+		const auto found = cameras.find(name);
+		if (found == cameras.end())
+			throw std::runtime_error("unknown camera '" + name + "'");
+		return found->second;
+	}
 
 	dk::gfx::FrameBuffer& frame_buffer(const std::string& name) const
 	{
 		if (name == "back_buffer")
 			return dk::gfx::backBuffer();
 		const auto found = frame_buffers.find(name);
-		if (found == frame_buffers.end())
-			throw std::runtime_error("unknown frame buffer '" + name + "'");
-		return *found->second;
+		if (found != frame_buffers.end())
+			return *found->second;
+
+		for (const auto& [camera_name, camera_runtime] : cameras) {
+			const auto prefix = camera_name + "_shadow_";
+			if (!name.starts_with(prefix))
+				continue;
+			try {
+				const auto cascade = std::stoul(name.substr(prefix.size()));
+				return camera_shadow_buffer(camera_name, cascade);
+			}
+			catch (const std::exception&) {
+				break;
+			}
+		}
+		throw std::runtime_error("unknown frame buffer '" + name + "'");
 	}
 
 	dk::gfx::Texture& texture(
@@ -303,10 +546,60 @@ using UniformTexture = rfl::TaggedUnion<
 	AssetUniformTexture,
 	FrameBufferAttachmentUniformTexture>;
 
+struct UniformCameraBinding {
+	std::string              name;
+	std::string              uniform;
+	std::vector<std::string> uniform_members;
+
+	void bind_to_shader(dk::gfx::Shader& shader, const RenderPassRuntime& runtime) const
+	{
+		const auto& camera_runtime = runtime.camera(name);
+		for (const auto& configured_member : uniform_members) {
+			const auto member = camera_member_name(configured_member);
+			const auto target = uniform + "." + member;
+
+			if (member == "VP") {
+				shader.uniforms().set(target, camera_runtime.camera.P() * camera_runtime.camera.V());
+			}
+			else if (member == "position") {
+				shader.uniforms().set(target, camera_runtime.camera.position);
+			}
+			else if (member == "direction") {
+				shader.uniforms().set(target, camera_runtime.camera.lookat - camera_runtime.camera.position);
+			}
+			else if (member == "asp") {
+				shader.uniforms().set(target, camera_runtime.camera.asp);
+			}
+			else if (member == "fov") {
+				shader.uniforms().set(target, camera_runtime.camera.fov);
+			}
+			else if (member == "np" || member == "nearPlane") {
+				shader.uniforms().set(target, camera_runtime.camera.np);
+				if (member == "np")
+					shader.uniforms().set(uniform + ".nearPlane", camera_runtime.camera.np);
+			}
+			else if (member == "fp" || member == "farPlane") {
+				shader.uniforms().set(target, camera_runtime.camera.fp);
+				if (member == "fp")
+					shader.uniforms().set(uniform + ".farPlane", camera_runtime.camera.fp);
+			}
+			else if (const auto index = lightspace_matrix_index(member); index.has_value()) {
+				if (*index >= camera_runtime.lightspace_matrices.size())
+					throw std::runtime_error("camera '" + name + "' has no lightspace matrix " + std::to_string(*index));
+				shader.uniforms().set(target, camera_runtime.lightspace_matrices[*index]);
+			}
+			else {
+				throw std::runtime_error("unknown camera member '" + configured_member + "'");
+			}
+		}
+	}
+};
+
 struct ShaderBinding {
 	rfl::Rename<"program", std::filesystem::path>                              m_program;
 	rfl::Rename<"uniforms", std::optional<std::vector<std::string>>>           m_uniforms;
 	rfl::Rename<"uniform_textures", std::optional<std::vector<UniformTexture>>> m_uniform_textures;
+	rfl::Rename<"uniform_cameras", std::optional<std::vector<UniformCameraBinding>>> m_uniform_cameras;
 
 	void set_uniforms(RenderContext& ctx, RenderPassRuntime& runtime) const
 	{
@@ -323,6 +616,11 @@ struct ShaderBinding {
 					binding.bind_to_shader(program, ctx, runtime);
 				}, uniform_texture);
 			}
+		}
+
+		if (m_uniform_cameras.get().has_value()) {
+			for (const auto& uniform_camera : *m_uniform_cameras.get())
+				uniform_camera.bind_to_shader(program, runtime);
 		}
 	}
 };
@@ -354,6 +652,7 @@ struct SingleMeshDrawCall {
 	ShaderBinding              shader;
 	MeshBinding                mesh;
 	std::optional<Transform>   transform;
+	std::optional<int>         cascade;
 	dk::gfx::Primitive         gl_primitive;
 
 	void execute(RenderContext& ctx, RenderPassRuntime& runtime) const
@@ -366,6 +665,8 @@ struct SingleMeshDrawCall {
 		const auto model = transform.transform([](const auto& value) -> glm::mat4 { return value; })
 			.value_or(glm::identity<glm::mat4>());
 		ctx.uniform_values["u_M"] = UniformValueBase::create_builtin(model);
+		if (cascade.has_value())
+			ctx.uniform_values["u_cascade"] = UniformValueBase::create_builtin(*cascade);
 		shader.set_uniforms(ctx, runtime);
 
 		runtime.frame_buffer(output_buffer.value_or("back_buffer")).render(
@@ -430,6 +731,7 @@ using DrawCall = rfl::TaggedUnion<
 
 struct RenderPass {
 	BackBufferBinding               back_buffer;
+	std::vector<CameraBinding>      cameras;
 	std::vector<GuiUniform>         gui_uniforms;
 	std::vector<FrameBufferBinding> frame_buffers;
 	std::vector<DrawCall>           draw_calls;
@@ -471,6 +773,7 @@ struct RenderPass {
 				if (!inserted)
 					throw std::runtime_error("duplicate frame buffer name '" + binding.name + "'");
 			}
+			initialized->initialize_cameras(cameras);
 			runtime = std::move(initialized);
 		}
 		return *runtime.get();
@@ -490,6 +793,7 @@ struct RenderPass {
 
 		const auto window_size = ctx.frame->viewport().size();
 		auto& current_runtime = initialize_runtime(window_size);
+		current_runtime.update_cameras(cameras, ctx);
 		for (const auto& binding : frame_buffers)
 			binding.resize_window_sized_attachments(current_runtime.frame_buffer(binding.name), window_size);
 

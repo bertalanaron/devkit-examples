@@ -50,12 +50,17 @@ void drawAssetErrorPopup(const std::optional<std::string>& error)
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
 	using namespace dk;
 
 	spdlog::set_level(spdlog::level::trace);
 	RenderContext context;
+	std::string render_pass_name = argc > 1 ? argv[1] : "scenes/asteroid_belt";
+	if (!render_pass_name.contains('/'))
+		render_pass_name = "scenes/" + render_pass_name;
+	if (render_pass_name.ends_with(".asset.yaml"))
+		render_pass_name.erase(render_pass_name.size() - std::string(".asset.yaml").size());
 
 	io::Window window;
 	window.open(1);
@@ -85,13 +90,13 @@ int main()
 		if (!asset_error.has_value()) {
 			moveCamera(context.camera, frame);
 
-			auto& render_pass = context.assets["scenes/asteroid_belt"].as<RenderPass>();
-			render_pass.drawGui(context);
 			try {
+				auto& render_pass = context.assets[render_pass_name].as<RenderPass>();
+				render_pass.drawGui(context);
 				render_pass.execute(context);
 			}
 			catch (const std::exception& error) {
-				asset_error = "scenes/asteroid_belt: " + std::string(error.what());
+				asset_error = render_pass_name + ": " + std::string(error.what());
 			}
 		}
 

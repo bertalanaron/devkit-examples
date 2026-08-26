@@ -51,6 +51,10 @@ void RenderContext::update_builtin_uniforms()
 	uniform_values["u_camera.VP"] = UniformValueBase::create_builtin(camera.P() * camera.V());
 	uniform_values["u_camera.position"] = UniformValueBase::create_builtin(camera.position);
 	uniform_values["u_camera.direction"] = UniformValueBase::create_builtin(camera.lookat - camera.position);
+	uniform_values["u_camera.nearPlane"] = UniformValueBase::create_builtin(camera.np);
+	uniform_values["u_camera.farPlane"] = UniformValueBase::create_builtin(camera.fp);
+	uniform_values["u_camera.np"] = UniformValueBase::create_builtin(camera.np);
+	uniform_values["u_camera.fp"] = UniformValueBase::create_builtin(camera.fp);
 	uniform_values["u_camera.fov"] = UniformValueBase::create_builtin(camera.fov);
 	uniform_values["u_t"] = UniformValueBase::create_builtin(time);
 	uniform_values["u_dt"] = UniformValueBase::create_builtin(frame->dt<std::chrono::seconds>());

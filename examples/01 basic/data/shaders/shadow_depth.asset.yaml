@@ -1,0 +1,28 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  vertex: |
+    #version 330 core
+
+    layout (location = 0) in vec3 vertex;
+
+    struct Sun {
+        mat4 lightspaceM[4];
+    }; uniform Sun u_sun;
+
+    uniform mat4 u_M;
+    uniform int u_cascade;
+
+    void main()
+    {
+        gl_Position = (vec4(vertex, 1.0) * u_M) * u_sun.lightspaceM[u_cascade];
+    }
+  fragment: |
+    #version 330 core
+
+    layout (location = 0) out vec4 FragColor;
+
+    void main()
+    {
+        FragColor = vec4(1, 0, 0, 1);
+    }

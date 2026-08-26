@@ -1,0 +1,80 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  vertex: |
+    #version 330 core
+
+    layout (location = 0) in vec3 vertex;
+    layout (location = 1) in vec3 normal;
+
+    struct Camera {
+        mat4 VP;
+        vec3 position;
+        vec3 direction;
+        float np;
+        float fp;
+    }; uniform Camera u_camera;
+
+    uniform mat4 u_M;
+
+    out vec3 WorldPosition;
+    out vec3 WorldNormal;
+
+    void main()
+    {
+        vec4 world = vec4(vertex, 1.0) * u_M;
+        WorldPosition = world.xyz / world.w;
+        WorldNormal = normalize(normal);
+        gl_Position = world * u_camera.VP;
+    }
+  fragment: |
+    #version 330 core
+
+    struct Camera {
+        mat4 VP;
+        vec3 position;
+        vec3 direction;
+        float np;
+        float fp;
+    }; uniform Camera u_camera;
+
+    struct Sun {
+        mat4 lightspaceM[4];
+    }; uniform Sun u_sun;
+
+    uniform sampler2D u_shadow0;
+    uniform sampler2D u_shadow1;
+    uniform sampler2D u_shadow2;
+
+    in vec3 WorldPosition;
+    in vec3 WorldNormal;
+    out vec4 FragColor;
+
+    void main()
+    {
+        float distanceToCamera = length(u_camera.position - WorldPosition);
+        int cascade = distanceToCamera < 14.0 ? 0 : (distanceToCamera < 33.0 ? 1 : 2);
+        vec4 lightPosition = cascade == 0
+            ? vec4(WorldPosition, 1.0) * u_sun.lightspaceM[0]
+            : (cascade == 1
+                ? vec4(WorldPosition, 1.0) * u_sun.lightspaceM[1]
+                : vec4(WorldPosition, 1.0) * u_sun.lightspaceM[2]);
+        vec3 shadowUV = lightPosition.xyz / lightPosition.w;
+        shadowUV = shadowUV * 0.5 + 0.5;
+
+        float shadow = 1.0;
+        if (all(greaterThanEqual(shadowUV, vec3(0.0))) &&
+            all(lessThanEqual(shadowUV, vec3(1.0)))) {
+            float mapDepth = cascade == 0
+                ? texture(u_shadow0, shadowUV.xy).r
+                : (cascade == 1 ? texture(u_shadow1, shadowUV.xy).r : texture(u_shadow2, shadowUV.xy).r);
+            shadow = shadowUV.z - 0.002 > mapDepth ? 0.35 : 1.0;
+        }
+
+        vec3 sunDirection = normalize(vec3(-0.5, -1.0, -0.25));
+        float diffuse = max(dot(normalize(WorldNormal), -sunDirection), 0.0);
+        vec3 baseColor = cascade == 0
+            ? vec3(0.20, 0.55, 0.85)
+            : (cascade == 1 ? vec3(0.30, 0.75, 0.45) : vec3(0.85, 0.55, 0.20));
+        FragColor = vec4(baseColor * (0.15 + diffuse * shadow), 1.0);
+    }

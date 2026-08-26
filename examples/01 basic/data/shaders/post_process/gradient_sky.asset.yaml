@@ -1,0 +1,33 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  fragment: |
+    #version 330
+
+    in vec2 UV;
+    out vec4 FragColor;
+
+    uniform sampler2D u_color;
+    uniform sampler2D u_depth;
+    
+    struct Camera {
+        float nearPlane;
+        float farPlane;
+    }; uniform Camera u_camera;
+
+    float linearize_depth(float d,float zNear,float zFar)
+    {
+        float z_n = 2.0 * d - 1.0;
+        return 2.0 * zNear * zFar / (zFar + zNear - z_n * (zFar - zNear));
+    }
+
+    void main()
+    {
+        float depth = linearize_depth(texture(u_depth, UV).r, u_camera.nearPlane, u_camera.farPlane);
+        depth = (depth - u_camera.nearPlane) / (u_camera.farPlane - u_camera.nearPlane);
+        depth = smoothstep(0.0, 0.9, depth);
+
+        vec3 fog_color = vec3(.4, .5, .7);
+        vec3 scene_color = texture(u_color, UV).rgb;
+        FragColor = vec4(mix(scene_color, fog_color, depth), 1);
+    }
