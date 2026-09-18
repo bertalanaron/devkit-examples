@@ -1,269 +1,318 @@
+---
 asset_type: render_pass
 asset_data:
-  back_buffer:
-    name: back_buffer
-    config:
-      DepthTest: Enabled
-
   cameras:
-    - name: default_camera
-      type: main
-      np: 0.1
-      fp: 500.0
-      fov: 1.0
-
-    - name: sun
-      type: csm_sun
-      np: 0.1
-      fp: 500.0
-      cascade_count: 3
-      direction: [-0.5, -1.0, -0.25]
-      shadow_resolution: 1024
-
+  - name: default_camera
+    type: main
+    np: 0.1
+    fp: 500.0
+    fov: 1.0
+  - name: sun
+    type: csm_sun
+    np: 0.1
+    fp: 500.0
+    cascade_count: 3
+    direction:
+    - -0.5
+    - -1.0
+    - -0.25
+    shadow_resolution: 1024
   gui_uniforms: []
-
+  draw_calls:
+  - output_buffer: sun_shadow_0
+    mask: Depth
+    type: clear
+  - output_buffer: sun_shadow_1
+    mask: Depth
+    type: clear
+  - output_buffer: sun_shadow_2
+    mask: Depth
+    type: clear
+  - output_buffer: sun_shadow_0
+    cascade: 0
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/3
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - -3
+      - 0
+    - scale:
+      - 3
+      - 1
+      - 3
+  - output_buffer: sun_shadow_0
+    cascade: 0
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/2
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - 5
+      - 0
+    - scale:
+      - 1
+      - 1
+      - 1
+  - output_buffer: sun_shadow_1
+    cascade: 1
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/3
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - -3
+      - 0
+    - scale:
+      - 3
+      - 1
+      - 3
+  - output_buffer: sun_shadow_1
+    cascade: 1
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/2
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - 5
+      - 0
+    - scale:
+      - 1
+      - 1
+      - 1
+  - output_buffer: sun_shadow_2
+    cascade: 2
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/3
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - -3
+      - 0
+    - scale:
+      - 3
+      - 1
+      - 3
+  - output_buffer: sun_shadow_2
+    cascade: 2
+    model_uniform: u_M
+    shader: shaders/shadow_depth
+    mesh:
+      source: models/space/meshes/2
+      vertices: Position
+    gl_primitive: Triangles
+    type: single_mesh
+    uniform_cameras:
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    transforms:
+    - translate:
+      - 0
+      - 5
+      - 0
+    - scale:
+      - 1
+      - 1
+      - 1
+  - output_buffer: scene_buffer
+    mask: Color|Depth
+    color:
+    - 0.2
+    - 0.3
+    - 0.6
+    - 1.0
+    type: clear
+  - output_buffer: scene_buffer
+    gl_primitive: Triangles
+    shader: shaders/csm_lit
+    mesh:
+      source: models/space/meshes/3
+      vertices: Position|Normal
+    type: single_mesh
+    uniform_textures:
+    - uniform: u_shadow0
+      frame_buffer: sun_shadow_0
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    - uniform: u_shadow1
+      frame_buffer: sun_shadow_1
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    - uniform: u_shadow2
+      frame_buffer: sun_shadow_2
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    uniform_cameras:
+    - name: default_camera
+      uniform: u_camera
+      uniform_members:
+      - VP
+      - position
+      - direction
+      - np
+      - fp
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    model_uniform: u_M
+    transforms:
+    - translate:
+      - 0
+      - -3
+      - 0
+    - scale:
+      - 3
+      - 1
+      - 3
+  - output_buffer: scene_buffer
+    gl_primitive: Triangles
+    shader: shaders/csm_lit
+    mesh:
+      source: models/space/meshes/2
+      vertices: Position|Normal
+    type: single_mesh
+    uniform_textures:
+    - uniform: u_shadow0
+      frame_buffer: sun_shadow_0
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    - uniform: u_shadow1
+      frame_buffer: sun_shadow_1
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    - uniform: u_shadow2
+      frame_buffer: sun_shadow_2
+      attachment:
+        type: depth
+      config:
+        MinFilter: Nearest
+        MagFilter: Nearest
+    uniform_cameras:
+    - name: default_camera
+      uniform: u_camera
+      uniform_members:
+      - VP
+      - position
+      - direction
+      - np
+      - fp
+    - name: sun
+      uniform: u_sun
+      uniform_members:
+      - lightspaceM[0]
+      - lightspaceM[1]
+      - lightspaceM[2]
+    model_uniform: u_M
+    transforms:
+    - translate:
+      - 0
+      - 5
+      - 0
+    - scale:
+      - 1
+      - 1
+      - 1
+  - input_buffer: scene_buffer
+    output_buffer: back_buffer
+    type: blit
+  textures: {}
   frame_buffers:
-    - name: scene_buffer
+    back_buffer:
+      config:
+        DepthTest: Enabled
+    scene_buffer:
       config:
         DepthTest: Enabled
         CullFace: Enabled
       attachments:
         color:
           0:
-            type: RenderBuffer
+            type: RenderBufferDefinition
             format: Unsigned8
             channels: RGBA
         depth:
-          type: RenderBuffer
+          type: RenderBufferDefinition
           format: Depth24
           channels: Depth
-
-  draw_calls:
-    # The csm_sun camera creates sun_shadow_0, sun_shadow_1, and sun_shadow_2.
-    - draw_kind: clear
-      output_buffer: sun_shadow_0
-      mask: Depth
-    - draw_kind: clear
-      output_buffer: sun_shadow_1
-      mask: Depth
-    - draw_kind: clear
-      output_buffer: sun_shadow_2
-      mask: Depth
-
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_0
-      cascade: 0
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/3
-        vertices: Position
-      transform:
-        position: [0, -3, 0]
-        scale: [3, 1, 3]
-      gl_primitive: Triangles
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_0
-      cascade: 0
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/2
-        vertices: Position
-      transform:
-        position: [0, 5, 0]
-        scale: [1, 1, 1]
-      gl_primitive: Triangles
-
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_1
-      cascade: 1
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/3
-        vertices: Position
-      transform:
-        position: [0, -3, 0]
-        scale: [3, 1, 3]
-      gl_primitive: Triangles
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_1
-      cascade: 1
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/2
-        vertices: Position
-      transform:
-        position: [0, 5, 0]
-        scale: [1, 1, 1]
-      gl_primitive: Triangles
-
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_2
-      cascade: 2
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/3
-        vertices: Position
-      transform:
-        position: [0, -3, 0]
-        scale: [3, 1, 3]
-      gl_primitive: Triangles
-    - draw_kind: single_mesh
-      output_buffer: sun_shadow_2
-      cascade: 2
-      shader:
-        program: shaders/shadow_depth
-        uniform_cameras:
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_cascade]
-      mesh:
-        source: models/space/meshes/2
-        vertices: Position
-      transform:
-        position: [0, 5, 0]
-        scale: [1, 1, 1]
-      gl_primitive: Triangles
-
-    - draw_kind: clear
-      output_buffer: scene_buffer
-      mask: Color|Depth
-      color: [0.2, 0.3, 0.6, 1.0]
-
-    - draw_kind: single_mesh
-      output_buffer: scene_buffer
-      gl_primitive: Triangles
-      shader:
-        program: shaders/csm_lit
-        uniform_textures:
-          - source: frame_buffer_attachment
-            uniform: u_shadow0
-            frame_buffer: sun_shadow_0
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-          - source: frame_buffer_attachment
-            uniform: u_shadow1
-            frame_buffer: sun_shadow_1
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-          - source: frame_buffer_attachment
-            uniform: u_shadow2
-            frame_buffer: sun_shadow_2
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-        uniform_cameras:
-          - name: default_camera
-            uniform: u_camera
-            uniform_members: [VP, position, direction, np, fp]
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_M]
-      mesh:
-        source: models/space/meshes/3
-        vertices: Position|Normal
-      transform:
-        position: [0, -3, 0]
-        scale: [3, 1, 3]
-    - draw_kind: single_mesh
-      output_buffer: scene_buffer
-      gl_primitive: Triangles
-      shader:
-        program: shaders/csm_lit
-        uniform_textures:
-          - source: frame_buffer_attachment
-            uniform: u_shadow0
-            frame_buffer: sun_shadow_0
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-          - source: frame_buffer_attachment
-            uniform: u_shadow1
-            frame_buffer: sun_shadow_1
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-          - source: frame_buffer_attachment
-            uniform: u_shadow2
-            frame_buffer: sun_shadow_2
-            attachment:
-              type: depth
-            config:
-              MinFilter: Nearest
-              MagFilter: Nearest
-        uniform_cameras:
-          - name: default_camera
-            uniform: u_camera
-            uniform_members: [VP, position, direction, np, fp]
-          - name: sun
-            uniform: u_sun
-            uniform_members: ["lightspaceM[0]", "lightspaceM[1]", "lightspaceM[2]"]
-        uniforms: [u_M]
-      mesh:
-        source: models/space/meshes/2
-        vertices: Position|Normal
-      transform:
-        position: [0, 5, 0]
-        scale: [1, 1, 1]
-
-    # - draw_kind: post_process
-    #   output_buffer: scene_buffer
-    #   shader:
-    #     program: shaders/post_process/display_depth
-    #     uniform_textures:
-    #       - source: frame_buffer_attachment
-    #         uniform: u_depth
-    #         frame_buffer: sun_shadow_0
-    #         attachment:
-    #           type: depth
-    #     uniform_cameras:
-    #       - name: default_camera
-    #         uniform: u_camera
-    #         uniform_members: [nearPlane, farPlane]
-
-    - draw_kind: blit
-      input_buffer: scene_buffer
-      output_buffer: back_buffer

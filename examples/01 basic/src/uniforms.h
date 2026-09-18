@@ -152,8 +152,6 @@ public:
 	template <typename ImGuiEditConfig>
 	static std::unique_ptr<UniformValueBase> create_gui_editable(const ImGuiEditConfig& config);
 
-	template <typename T>
-	static std::unique_ptr<UniformValueBase> create_builtin(T value);
 };
 
 template <typename T, typename ImGuiEditConfig>
@@ -178,33 +176,9 @@ private:
 	ImGuiEditConfig m_config;
 };
 
-template <typename T>
-class BuiltinUniformValue final : public UniformValueBase {
-public:
-	explicit BuiltinUniformValue(T value)
-		: m_value(std::move(value))
-	{ }
-
-	void bind_to(const std::string& uniform, dk::gfx::Shader& shader) const override
-	{
-		shader.uniforms().set(uniform, m_value);
-	}
-
-	void imgui_edit(const char*) override { }
-
-private:
-	T m_value;
-};
-
 template <typename ImGuiEditConfig>
 std::unique_ptr<UniformValueBase> UniformValueBase::create_gui_editable(const ImGuiEditConfig& config)
 {
 	using Value = typename ImGuiEditConfig::Value;
 	return std::make_unique<GuiUniformValue<Value, ImGuiEditConfig>>(config);
-}
-
-template <typename T>
-std::unique_ptr<UniformValueBase> UniformValueBase::create_builtin(T value)
-{
-	return std::make_unique<BuiltinUniformValue<T>>(std::move(value));
 }
