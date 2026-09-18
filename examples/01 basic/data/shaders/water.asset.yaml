@@ -93,8 +93,8 @@ asset_data:
         mat4 VP;
         vec3 position;
         vec3 direction;
-        float nearPlane;
-        float farPlane;
+        float np;
+        float fp;
     }; uniform Camera u_camera;
 
     uniform mat4 u_M;
@@ -203,8 +203,8 @@ asset_data:
         mat4 VP;
         vec3 position;
         vec3 direction;
-        float nearPlane;
-        float farPlane;
+        float np;
+        float fp;
     }; uniform Camera u_camera;
 
     uniform sampler2D u_sceneDepth;
@@ -221,8 +221,8 @@ asset_data:
 
     float linearizeDepth(float d)
     {
-        float zNear = u_camera.nearPlane;
-        float zFar  = u_camera.farPlane;
+        float zNear = u_camera.np;
+        float zFar  = u_camera.fp;
         float z_n = 2.0 * d - 1.0;
         return 2.0 * zNear * zFar / (zFar + zNear - z_n * (zFar - zNear));
     }

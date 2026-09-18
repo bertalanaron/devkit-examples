@@ -136,7 +136,10 @@ asset_data:
     # Draw water
     - output_buffer: scene_buffer
       gl_primitive: Patches
-      shader: shaders/water
+      shader:
+        asset: shaders/water
+        config:
+          PatchVertices: 3
       mesh:
         source: models/plane/meshes/0
         vertices: Position|Normal|TexCoords|Tangent|Bitangent
