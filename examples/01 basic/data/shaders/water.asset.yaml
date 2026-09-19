@@ -161,6 +161,9 @@ asset_data:
     uniform float u_foamAmount;
     uniform float u_refractionStrength;
     uniform float u_waterAbsorption;
+    uniform float u_windStrength;
+    uniform float u_windPatchSize;
+    uniform float u_windDriftSpeed;
 
     in WATER_SURFACE {
         vec3 Position;
@@ -185,6 +188,24 @@ asset_data:
         vec2 u = f * f * (3.0 - 2.0 * f);
         return mix(mix(hash22(cell).x, hash22(cell + vec2(1, 0)).x, u.x),
                    mix(hash22(cell + vec2(0, 1)).x, hash22(cell + vec2(1, 1)).x, u.x), u.y);
+    }
+
+    float filteredNoise(vec2 p)
+    {
+        float detail = 1.0 - smoothstep(0.35, 1.0, length(fwidth(p)));
+        return mix(0.5, noise(p), detail);
+    }
+
+    float windCoverage(vec2 coordinates)
+    {
+        // Advect broad patches in world space, independently of wave speed.
+        vec2 drift = normalize(vec2(1.0, 0.35)) * u_t * max(u_windDriftSpeed, 0.0);
+        vec2 p = (coordinates - drift) / max(u_windPatchSize, 1.0);
+        vec2 warp = vec2(filteredNoise(p * 0.65 + vec2(17.3, 9.2)),
+                         filteredNoise(p * 0.65 + vec2(5.7, 31.8))) - 0.5;
+        float coverage = 0.65 * filteredNoise(p + warp * 1.3 + vec2(13.7, 29.1))
+                       + 0.35 * filteredNoise(p * 2.03 + warp + vec2(41.2, 7.6));
+        return smoothstep(0.2, 0.8, coverage);
     }
 
     // Crisp toon boundaries with a pixel-sized transition to suppress shimmer.
@@ -223,6 +244,9 @@ asset_data:
         vec3 view = normalize(u_camera.position - surface.Position);
         float time = u_t * u_waveSpeed;
         vec2 p = surface.Coordinates;
+        float wind = windCoverage(p);
+        float windStrength = clamp(u_windStrength, 0.0, 1.0);
+        float roughness = mix(1.0, mix(0.3, 1.65, wind), windStrength);
 
         // Fine wind ripples supplement the geometric swell. Fade subpixel
         // frequencies out before thresholding the lighting, especially at sea level.
@@ -230,7 +254,7 @@ asset_data:
         vec2 ripples = vec2(1.0, 0.35) * cos(dot(p, vec2(3.1, 1.1)) - time * 2.8)
                      + vec2(-0.4, 0.9) * cos(dot(p, vec2(-2.3, 5.2)) - time * 3.6);
         vec3 normal = normalize(surface.Normal - vec3(ripples.x, 0.0, ripples.y)
-                              * 0.055 * rippleFade * clamp(u_waveHeight, 0.0, 1.5));
+                              * 0.055 * roughness * rippleFade * clamp(u_waveHeight, 0.0, 1.5));
         if (dot(normal, view) < 0.0)
             normal = -normal;
 
@@ -296,6 +320,9 @@ asset_data:
         vec3 shallow = vec3(0.045, 0.67, 0.64);
         vec3 deep = vec3(0.018, 0.19, 0.39);
         vec3 water = mix(shallow, deep, depthTint);
+        // Broad blue/green tint variation remains readable after fine ripples fade.
+        vec3 windTint = mix(vec3(0.88, 0.94, 1.02), vec3(1.04, 1.14, 1.06), wind);
+        water *= mix(vec3(1.0), windTint, windStrength);
         float lightBands = 0.65 + 0.23 * band(0.55, diffuse) + 0.17 * band(0.88, diffuse);
         vec3 color = water * lightBands;
 
@@ -313,12 +340,14 @@ asset_data:
                     0.16 * band(0.22, surface.Compression));
         float fresnel = pow(1.0 - facing, 4.0);
         float reflection = 0.06 + 0.18 * band(0.12, fresnel) + 0.24 * band(0.48, fresnel);
+        reflection *= mix(1.0, mix(1.12, 0.82, wind), windStrength);
         vec3 reflected = reflect(-view, normal);
         vec3 sky = mix(vec3(0.51, 0.74, 0.84), vec3(0.20, 0.48, 0.70),
                        band(0.45, reflected.y));
         color = mix(color, sky, reflection);
         vec3 halfVector = normalize(view + light);
-        float glint = pow(max(dot(normal, halfVector), 0.0), 96.0);
+        float gloss = mix(96.0, mix(160.0, 48.0, wind), windStrength);
+        float glint = pow(max(dot(normal, halfVector), 0.0), gloss);
         color += vec3(0.65, 0.78, 0.75) * band(0.48, glint) * rippleFade * 0.65;
 
         // Advect and warp the foam pattern; it stays attached to the moving
@@ -339,10 +368,15 @@ asset_data:
 
         // Whitecaps form where the Gerstner surface compresses; noise breaks
         // each crest into patches and cells open up the trailing froth.
-        float crest = smoothstep(0.24, 0.43, surface.Compression);
+        float whitecapDrive = mix(1.0, mix(0.5, 1.45, wind), windStrength);
+        float crest = smoothstep(0.24, 0.43, surface.Compression * whitecapDrive);
         float whitecaps = band(0.52, crest * (0.55 + breakup * 0.45)) * lace;
         float foamDetail = 1.0 - smoothstep(0.35, 1.5, length(fwidth(drift * 2.8)));
-        whitecaps *= foamDetail;
+        // At a distance, replace unresolved foam cells with broad crest coverage
+        // in windy patches. Keep the shoreline foam tied to its original depth.
+        float distantWhitecaps = crest * (0.25 + 0.5 * wind);
+        whitecaps = whitecaps * foamDetail
+                  + distantWhitecaps * (1.0 - foamDetail) * windStrength;
         float foam = clamp(max(shoreFoam, whitecaps) * u_foamAmount, 0.0, 1.0);
         float foamMask = band(0.32, foam);
         vec3 foamColor = mix(vec3(0.54, 0.80, 0.81), vec3(0.94, 0.98, 0.89),

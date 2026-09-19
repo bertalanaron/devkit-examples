@@ -60,6 +60,16 @@ before reflection and foam, with absorption increasing along the underwater path
 The color resolve is overwritten after water for the final post-process. Water
 outputs alpha 1 because its shader already includes the background color.
 
+Broad wind patches vary ripple strength, surface gloss, blue/green tint, and
+whitecap coverage. They drift through world space and retain broad foam coverage
+as the fine foam pattern fades with distance. Shoreline foam still follows depth.
+
+- `u_windStrength`: variation strength, from 0 (uniform sea state) to 1.
+- `u_windPatchSize`: approximate patch size in world units; larger values give
+  broader areas of calm and rough water.
+- `u_windDriftSpeed`: patch movement in world units per second, independent of
+  `u_waveSpeed`. Zero freezes the patches while waves can continue moving.
+
 Use a named texture with an explicit size, as in this example, or an explicitly
 sized framebuffer attachment for persistent procedural output. Window-sized
 attachments are reallocated when the window resizes and lose their contents.

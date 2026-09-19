@@ -211,11 +211,11 @@ TEST_F(RenderPassPreprocess, WaterRefractionChangesTransmissionAndResizes)
             if constexpr (std::same_as<std::remove_cvref_t<decltype(call)>, draw_calls::SingleMeshDrawCall>) {
                 if (call.mesh.source == "models/terrain_grid/meshes/0")
                     call.transforms = rfl::yaml::read<std::vector<primitives::transforms::Transform>>(
-                        "- translate: [0, -2, 0]\n- scale: [20, 1, 20]").value();
+                        std::string("- translate: [0, -2, 0]\n- scale: [20, 1, 20]")).value();
                 else if (call.mesh.source == "models/plane/meshes/0") {
                     call.mesh.source = "models/terrain_grid/meshes/0";
                     call.transforms = rfl::yaml::read<std::vector<primitives::transforms::Transform>>(
-                        "- scale: [20, 1, 20]").value();
+                        std::string("- scale: [20, 1, 20]")).value();
                 }
             }
         }, draw_call);
@@ -264,7 +264,7 @@ TEST_F(RenderPassPreprocess, WaterRefractionChangesTransmissionAndResizes)
     EXPECT_GT(changed, 100u);
 
     // The opaque snapshot must be refreshed every frame, without feedback
-    // from the previous water draw or a second blend with the background.
+    // from the previous water draw.
     set_float("u_refractionStrength", 0.f);
     EXPECT_EQ(render(), straight);
     frame.viewport() = dk::gfx::Viewport(glm::ivec2(128));
