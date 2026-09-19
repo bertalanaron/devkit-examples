@@ -193,4 +193,84 @@ TEST_F(RenderPassPreprocess, TerrainDisplacesGeometryAndRendersWithWater)
     EXPECT_EQ(glGetError(), GL_NO_ERROR);
 }
 
+TEST_F(RenderPassPreprocess, WaterRefractionChangesTransmissionAndResizes)
+{
+    context.assets.scan_filesystem();
+    for (auto&& [path, asset] : context.assets.all())
+        asset.execute_pending_task();
+    auto pass = dk::io::assets::Meta(
+        context.assets.root() / "scenes/asteroid_belt.asset.yaml",
+        dk::io::assets::Yaml{}).parse<RenderPass>();
+
+    // Use the real pipeline and shaders with a fixed, shallow seabed. This
+    // keeps the check independent of edits to the procedural island shape.
+    pass.preprocess_draw_calls = std::vector<draw_calls::DrawCall>{draw_calls::Clear{
+        .output_buffer = std::string("height_map_buffer"), .mask = dk::gfx::Clear::Color}};
+    for (auto& draw_call : pass.draw_calls) {
+        rfl::visit([&](auto& call) {
+            if constexpr (std::same_as<std::remove_cvref_t<decltype(call)>, draw_calls::SingleMeshDrawCall>) {
+                if (call.mesh.source == "models/terrain_grid/meshes/0")
+                    call.transforms = rfl::yaml::read<std::vector<primitives::transforms::Transform>>(
+                        "- translate: [0, -2, 0]\n- scale: [20, 1, 20]").value();
+                else if (call.mesh.source == "models/plane/meshes/0") {
+                    call.mesh.source = "models/terrain_grid/meshes/0";
+                    call.transforms = rfl::yaml::read<std::vector<primitives::transforms::Transform>>(
+                        "- scale: [20, 1, 20]").value();
+                }
+            }
+        }, draw_call);
+    }
+
+    struct FloatUniform : UniformValueBase {
+        float value;
+        explicit FloatUniform(float v) : value(v) {}
+        void bind_to(const std::string& name, dk::gfx::Shader& shader) const override
+        { shader.uniforms().set(name, value); }
+        void imgui_edit(const char*) override {}
+    };
+    const auto set_float = [&](const std::string& name, float value) {
+        context.gui_uniform_values[name] = std::make_unique<FloatUniform>(value);
+    };
+    set_float("u_terrainTessLevel", 8.f);
+    set_float("u_waterAbsorption", 0.3f);
+    set_float("u_refractionStrength", 0.f);
+    context.camera.position = {0.f, 8.f, -10.f};
+    context.camera.lookat = {0.f, 0.f, 0.f};
+    context.camera.asp = 1.f;
+    frame.viewport() = dk::gfx::Viewport(glm::ivec2(96));
+    dk::gfx::backBuffer().setViewport(frame.viewport());
+
+    const auto render = [&] {
+        pass.execute(context);
+        auto& color = pass.runtime.get()->frame_buffer(std::string("resolve_buffer"))
+            .color[0].get<dk::gfx::Texture2D>();
+        std::vector<unsigned char> pixels(color.size().x * color.size().y * 4);
+        glBindTexture(GL_TEXTURE_2D, color.handle());
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        return pixels;
+    };
+
+    const auto straight = render();
+    set_float("u_refractionStrength", 1.f);
+    const auto refracted = render();
+    ASSERT_EQ(straight.size(), refracted.size());
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < straight.size(); i += 4)
+        if (std::abs(int(straight[i]) - int(refracted[i])) > 2 ||
+            std::abs(int(straight[i + 1]) - int(refracted[i + 1])) > 2 ||
+            std::abs(int(straight[i + 2]) - int(refracted[i + 2])) > 2)
+            ++changed;
+    EXPECT_GT(changed, 100u);
+
+    // The opaque snapshot must be refreshed every frame, without feedback
+    // from the previous water draw or a second blend with the background.
+    set_float("u_refractionStrength", 0.f);
+    EXPECT_EQ(render(), straight);
+    frame.viewport() = dk::gfx::Viewport(glm::ivec2(128));
+    dk::gfx::backBuffer().setViewport(frame.viewport());
+    set_float("u_refractionStrength", 1.f);
+    EXPECT_EQ(render().size(), 128u * 128u * 4u);
+}
+
 } // namespace

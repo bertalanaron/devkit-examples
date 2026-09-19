@@ -153,11 +153,14 @@ asset_data:
     }; uniform Camera u_camera;
 
     uniform sampler2D u_sceneDepth;
+    uniform sampler2D u_sceneColor;
     uniform float u_t;
     uniform float u_waveHeight;
     uniform float u_waveSpeed;
     uniform float u_foamWidth;
     uniform float u_foamAmount;
+    uniform float u_refractionStrength;
+    uniform float u_waterAbsorption;
 
     in WATER_SURFACE {
         vec3 Position;
@@ -209,6 +212,12 @@ asset_data:
         return distanceToBubble;
     }
 
+    vec3 reconstructPosition(vec2 uv, float depth, mat4 inverseVP)
+    {
+        vec4 world = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0) * inverseVP;
+        return world.xyz / world.w;
+    }
+
     void main()
     {
         vec3 view = normalize(u_camera.position - surface.Position);
@@ -227,14 +236,57 @@ asset_data:
 
         vec2 screenUV = gl_FragCoord.xy / vec2(textureSize(u_sceneDepth, 0));
         float sceneDepth = texture(u_sceneDepth, screenUV).r;
+        mat4 inverseVP = inverse(u_camera.VP);
         float thickness = 50.0;
+        float opticalPath = 50.0;
+        vec2 refractionUV = screenUV;
+        bool hasBackground = sceneDepth < 0.999999 && sceneDepth > gl_FragCoord.z;
         if (sceneDepth < 0.999999) {
             // Reconstruct the opaque point under this fragment. Vertical depth
             // keeps shoreline width consistent when the viewing angle changes.
-            vec4 opaque = vec4(screenUV * 2.0 - 1.0, sceneDepth * 2.0 - 1.0, 1.0)
-                        * inverse(u_camera.VP);
-            vec3 opaquePosition = opaque.xyz / opaque.w;
+            vec3 opaquePosition = reconstructPosition(screenUV, sceneDepth, inverseVP);
             thickness = max(surface.Position.y - opaquePosition.y, 0.0);
+            opticalPath = length(opaquePosition - surface.Position);
+        }
+
+        if (hasBackground) {
+            // Approximate the refracted ray's intersection with the seabed's
+            // horizontal plane, then project it into the saved opaque scene.
+            vec3 ray = refract(-view, normal, 1.0 / 1.333);
+            float travel = min(thickness / max(-ray.y, 0.1), 50.0);
+            vec4 target = vec4(surface.Position + ray * travel, 1.0) * u_camera.VP;
+            if (target.w > 0.001) {
+                vec2 offset = (target.xy / target.w * 0.5 + 0.5 - screenUV)
+                            * clamp(u_refractionStrength, 0.0, 2.0);
+                // Fade bending at contact points and screen borders.
+                vec2 edge = min(screenUV, 1.0 - screenUV);
+                offset *= smoothstep(0.0, 0.04, min(edge.x, edge.y))
+                        * smoothstep(0.05, 0.75, thickness);
+                vec2 halfTexel = 0.5 / vec2(textureSize(u_sceneDepth, 0));
+                for (int attempt = 0; attempt < 4; ++attempt) {
+                    vec2 uv = screenUV + offset;
+                    if (all(greaterThanEqual(uv, halfTexel)) &&
+                        all(lessThanEqual(uv, 1.0 - halfTexel))) {
+                        // Color uses bilinear filtering: reject foreground in
+                        // any of its four contributing depth texels as well.
+                        vec4 depths = textureGather(u_sceneDepth, uv);
+                        float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
+                        float farthest = max(max(depths.x, depths.y), max(depths.z, depths.w));
+                        if (closest > gl_FragCoord.z && farthest < 0.999999) {
+                            float depth = texture(u_sceneDepth, uv).r;
+                            vec3 opaquePosition = reconstructPosition(uv, depth, inverseVP);
+                            if (opaquePosition.y < surface.Position.y) {
+                                refractionUV = uv;
+                                opticalPath = length(opaquePosition - surface.Position);
+                                break;
+                            }
+                        }
+                    }
+                    // Shorten invalid offsets instead of pulling land or sky
+                    // into the water; the undistorted sample is the fallback.
+                    offset *= 0.5;
+                }
+            }
         }
 
         vec3 light = normalize(vec3(-0.35, 0.8, 0.25));
@@ -246,6 +298,14 @@ asset_data:
         vec3 water = mix(shallow, deep, depthTint);
         float lightBands = 0.65 + 0.23 * band(0.55, diffuse) + 0.17 * band(0.88, diffuse);
         vec3 color = water * lightBands;
+
+        // Red light is absorbed fastest. Blend transmission here, before
+        // reflection and foam, so neither effect is distorted with the seabed.
+        vec3 transmission = hasBackground
+            ? exp(-vec3(0.22, 0.09, 0.055) * opticalPath * max(u_waterAbsorption, 0.0))
+            : vec3(0.0);
+        vec3 refractedColor = texture(u_sceneColor, refractionUV).rgb;
+        color = color * (1.0 - transmission) + refractedColor * transmission;
 
         // A restrained crest tint and stepped sky reflection keep the large
         // swells readable without turning the whole surface into white foam.
@@ -289,8 +349,7 @@ asset_data:
                              band(0.52, fine * 0.35 + diffuse * 0.65));
         color = mix(color, foamColor, foamMask);
 
-        // Absorption leaves shallow water translucent and the open sea opaque.
-        float opacity = mix(0.48, 0.98, 1.0 - exp(-thickness * 0.65));
-        opacity = mix(opacity, 1.0, foamMask);
-        FragColor = vec4(color, opacity);
+        // The saved background is already composited above. Alpha blending it
+        // again would reintroduce an undistorted copy of the terrain.
+        FragColor = vec4(color, 1.0);
     }
