@@ -1,15 +1,10 @@
 #include "runtime.h"
+#include "csm.h"
 
 #include <devkit/gfx/frame_buffer.h>
 
-#include <array>
-#include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <type_traits>
-
-#include <glm/gtc/matrix_inverse.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <imgui.h>
 
@@ -39,68 +34,6 @@ unsigned sample_count(const std::optional<unsigned>& configured)
 	if (result == 0)
 		throw std::runtime_error("render target samples must be positive");
 	return result;
-}
-
-float camera_ndc_depth(const dk::gfx::Camera& camera, float distance)
-{
-	if (camera.projection == dk::gfx::Camera::Projection::Orthographic)
-		return (2.f * distance - (camera.fp + camera.np)) / (camera.fp - camera.np);
-	return (camera.fp + camera.np - 2.f * camera.np * camera.fp / distance) /
-		(camera.fp - camera.np);
-}
-
-std::array<glm::vec3, 8> camera_frustum_corners(
-	const dk::gfx::Camera& camera, float near_distance, float far_distance)
-{
-	const auto inverse_vp = glm::inverse(camera.P() * camera.V());
-	std::array<glm::vec3, 8> result{};
-	std::size_t index = 0;
-	for (const auto distance : { near_distance, far_distance }) {
-		const auto ndc_z = camera_ndc_depth(camera, distance);
-		for (const auto x : { -1.f, 1.f }) {
-			for (const auto y : { -1.f, 1.f }) {
-				const auto world = inverse_vp * glm::vec4(x, y, ndc_z, 1.f);
-				result[index++] = glm::vec3(world) / world.w;
-			}
-		}
-	}
-	return result;
-}
-
-glm::mat4 make_lightspace_matrix(
-	const dk::gfx::Camera& main_camera,
-	const glm::vec3& sun_direction,
-	float near_distance, float far_distance)
-{
-	const auto corners = camera_frustum_corners(main_camera, near_distance, far_distance);
-	glm::vec3 center(0.f);
-	for (const auto& corner : corners)
-		center += corner;
-	center /= static_cast<float>(corners.size());
-
-	const auto direction_length = glm::length(sun_direction);
-	if (direction_length <= std::numeric_limits<float>::epsilon())
-		throw std::runtime_error("csm_sun.direction must not be zero");
-	const auto direction = sun_direction / direction_length;
-	const auto light_position = center - direction * (far_distance - near_distance + 50.f);
-	const auto up = std::abs(glm::dot(direction, glm::vec3(0, 1, 0))) > 0.95f
-		? glm::vec3(1, 0, 0)
-		: glm::vec3(0, 1, 0);
-	const auto light_view = glm::lookAt(light_position, center, up);
-
-	glm::vec3 minimum(std::numeric_limits<float>::max());
-	glm::vec3 maximum(std::numeric_limits<float>::lowest());
-	for (const auto& corner : corners) {
-		const auto light_space = light_view * glm::vec4(corner, 1.f);
-		minimum = glm::min(minimum, glm::vec3(light_space));
-		maximum = glm::max(maximum, glm::vec3(light_space));
-	}
-
-	constexpr float padding = 10.f;
-	return glm::ortho(
-		minimum.x - padding, maximum.x + padding,
-		minimum.y - padding, maximum.y + padding,
-		minimum.z - padding, maximum.z + padding) * light_view;
 }
 
 template <typename Output>
@@ -136,7 +69,6 @@ void Runtime::reset()
 {
 	m_frame_buffer_views.clear();
 	m_frame_buffers.clear();
-	m_frame_buffer_texture_arrays.clear();
 	m_textures.clear();
 	m_cameras.clear();
 }
@@ -252,10 +184,7 @@ void Runtime::create_frame_buffer(
 					const auto size = to_size(typed.size.or_else([&] { return definition.size; }), default_size);
 					if (typed.layers <= 0 || typed.samples.value_or(1u) != 1)
 						throw std::runtime_error("invalid texture array framebuffer attachment");
-					auto array = std::make_unique<dk::gfx::Texture2DArray>(
-						size, typed.layers, typed.channels, typed.format);
-					output = (*array)[0];
-					m_frame_buffer_texture_arrays.push_back(std::move(array));
+					output = dk::gfx::Texture2DArray(size, typed.layers, typed.channels, typed.format);
 				}
 				else {
 					bind_attachment(output, typed, definition.size, default_size);
@@ -268,15 +197,11 @@ void Runtime::create_frame_buffer(
 			else if constexpr (std::same_as<Descriptor, primitives::textures::Texture2DReference>) {
 				output = texture2d(typed.name);
 			}
-			else if constexpr (std::same_as<Descriptor, primitives::textures::Texture2DArrayReference> ||
-				std::same_as<Descriptor, primitives::textures::Texture2DArrayLayerReference>) {
-				const auto layer = [&] {
-					if constexpr (std::same_as<Descriptor, primitives::textures::Texture2DArrayReference>)
-						return 0;
-					else
-						return typed.layer;
-				}();
-				output = texture2d_array(typed.name)[layer];
+			else if constexpr (std::same_as<Descriptor, primitives::textures::Texture2DArrayReference>) {
+				output = texture2d_array(typed.name);
+			}
+			else if constexpr (std::same_as<Descriptor, primitives::textures::Texture2DArrayLayerReference>) {
+				output = texture2d_array(typed.name)[typed.layer];
 			}
 		});
 		if (multisampled)
@@ -320,22 +245,19 @@ void Runtime::initialize_cameras(const std::vector<primitives::CameraBinding>& c
 			else {
 				const auto cascades = definition.cascade_count.value_or(3u);
 				const auto resolution = definition.shadow_resolution.value_or(1024u);
-				if (cascades == 0 || cascades > 4)
+				if (cascades == 0 || cascades > csm::max_cascades)
 					throw std::runtime_error("csm_sun.cascade_count must be between 1 and 4");
 				if (resolution == 0)
 					throw std::runtime_error("csm_sun.shadow_resolution must be positive");
 				auto& csm = runtime.emplace<CsmSunCameraRuntime>();
 				csm.lightspace_matrices.resize(cascades);
-				csm.shadow_buffers.reserve(cascades);
-				for (unsigned cascade = 0; cascade < cascades; ++cascade) {
-					auto shadow_buffer = std::make_unique<dk::gfx::FrameBuffer>();
-					shadow_buffer->config(dk::gfx::FrameBuffer::DepthTest::Enabled);
-					shadow_buffer->config(dk::gfx::FrameBuffer::DepthFunc::Less);
-					shadow_buffer->config(dk::gfx::FrameBuffer::CullFace::Disabled);
-					shadow_buffer->depth = dk::gfx::Texture2D(
-						glm::ivec2(resolution), dk::gfx::Channels::Depth, dk::gfx::Format::Depth32F);
-					csm.shadow_buffers.push_back(std::move(shadow_buffer));
-				}
+				csm.shadow_buffer = std::make_unique<dk::gfx::FrameBuffer>();
+				csm.shadow_buffer->config(dk::gfx::FrameBuffer::DepthTest::Enabled);
+				csm.shadow_buffer->config(dk::gfx::FrameBuffer::DepthFunc::Less);
+				csm.shadow_buffer->config(dk::gfx::FrameBuffer::CullFace::Disabled);
+				csm.shadow_buffer->config(dk::gfx::FrameBuffer::PointSize(1.f));
+				csm.shadow_buffer->depth = dk::gfx::Texture2DArray(
+					glm::ivec2(resolution), cascades, dk::gfx::Channels::Depth, dk::gfx::Format::Depth32F);
 			}
 
 			const auto [entry, inserted] = m_cameras.emplace(definition.name, std::move(runtime));
@@ -343,11 +265,9 @@ void Runtime::initialize_cameras(const std::vector<primitives::CameraBinding>& c
 				throw std::runtime_error("duplicate camera name '" + definition.name + "'");
 			if constexpr (std::same_as<Definition, primitives::CsmSunCamera>) {
 				auto& csm = std::get<CsmSunCameraRuntime>(entry->second);
-				for (std::size_t cascade = 0; cascade < csm.shadow_buffers.size(); ++cascade) {
-					const auto shadow_name = definition.name + "_shadow_" + std::to_string(cascade);
-					if (!m_frame_buffer_views.emplace(shadow_name, csm.shadow_buffers[cascade].get()).second)
-						throw std::runtime_error("duplicate frame buffer name '" + shadow_name + "'");
-				}
+				const auto shadow_name = definition.name + "_shadow";
+				if (!m_frame_buffer_views.emplace(shadow_name, csm.shadow_buffer.get()).second)
+					throw std::runtime_error("duplicate frame buffer name '" + shadow_name + "'");
 			}
 		});
 	}
@@ -386,15 +306,12 @@ void Runtime::update_cameras(
 				const auto direction = definition.direction.value_or(glm::vec3(-0.5f, -1.f, -0.25f));
 				camera_runtime.lightspace_matrices.clear();
 				camera_runtime.lightspace_matrices.reserve(cascades);
-				constexpr float lambda = 0.6f;
+				camera_runtime.direction = glm::normalize(direction);
+				camera_runtime.split_depths = csm::split_depths(definition.np, definition.fp, cascades);
 				float previous_split = definition.np;
-				for (unsigned cascade = 0; cascade < cascades; ++cascade) {
-					const auto fraction = static_cast<float>(cascade + 1) / cascades;
-					const auto logarithmic = definition.np * std::pow(definition.fp / definition.np, fraction);
-					const auto uniform = definition.np + (definition.fp - definition.np) * fraction;
-					const auto split = logarithmic * lambda + uniform * (1.f - lambda);
+				for (const auto split : camera_runtime.split_depths) {
 					camera_runtime.lightspace_matrices.push_back(
-						make_lightspace_matrix(source, direction, previous_split, split));
+						csm::lightspace_matrix(source, direction, previous_split, split));
 					previous_split = split;
 				}
 			}
@@ -495,22 +412,39 @@ const dk::gfx::Camera& Runtime::camera(const std::string& name) const
 	return std::visit([](const auto& runtime) -> const dk::gfx::Camera& { return runtime.camera; }, found->second);
 }
 
+glm::vec3 Runtime::camera_direction(const std::string& name) const
+{
+    const auto found = m_cameras.find(name);
+    if (found == m_cameras.end())
+        throw std::runtime_error("unknown camera '" + name + "'");
+    return std::visit([](const auto& runtime) -> glm::vec3 {
+        using Camera = std::remove_cvref_t<decltype(runtime)>;
+        if constexpr (std::same_as<Camera, CsmSunCameraRuntime>)
+            return runtime.direction;
+        else
+            return runtime.camera.lookat - runtime.camera.position;
+    }, found->second);
+}
+
+const Runtime::CsmSunCameraRuntime& Runtime::csm_camera(const std::string& name) const
+{
+    const auto found = m_cameras.find(name);
+    if (found == m_cameras.end())
+        throw std::runtime_error("unknown camera '" + name + "'");
+    const auto* result = std::get_if<CsmSunCameraRuntime>(&found->second);
+    if (!result)
+        throw std::runtime_error("camera '" + name + "' is not a csm_sun camera");
+    return *result;
+}
+
 glm::mat4 Runtime::lightspace_matrix(const std::string& name, std::size_t index) const
 {
-	const auto found = m_cameras.find(name);
-	if (found == m_cameras.end())
-		throw std::runtime_error("unknown camera '" + name + "'");
-	return std::visit([&](const auto& runtime) -> glm::mat4 {
-		using Camera = std::remove_cvref_t<decltype(runtime)>;
-		if constexpr (std::same_as<Camera, CsmSunCameraRuntime>) {
-			if (index >= runtime.lightspace_matrices.size())
-				throw std::runtime_error("camera '" + name + "' has no lightspace matrix " + std::to_string(index));
-			return runtime.lightspace_matrices[index];
-		}
-		else {
-			throw std::runtime_error("camera '" + name + "' has no lightspace matrices");
-		}
-	}, found->second);
+    return csm_camera(name).lightspace_matrices.at(index);
+}
+
+const std::vector<float>& Runtime::cascade_splits(const std::string& name) const
+{
+    return csm_camera(name).split_depths;
 }
 
 void RenderPass::initialize_gui_uniforms(RenderContext& context) const
@@ -554,9 +488,23 @@ void RenderPass::execute(RenderContext& context) const
 	if (!runtime.get()) {
 		auto initialized = std::make_shared<Runtime>();
 		initialized->initialize(textures, frame_buffers, cameras, window_size);
+		initialized->update(frame_buffers, cameras, context, window_size);
+		try {
+			if (preprocess_draw_calls)
+				for (const auto& draw_call : *preprocess_draw_calls)
+					rfl::visit([&](const auto& call) { call.execute(context, *initialized); }, draw_call);
+		}
+		catch (...) {
+			// Shader texture bindings may refer to the discarded runtime.
+			context.updated = true;
+			throw;
+		}
+		// Publish only after preprocessing succeeds; a failed load can be retried.
 		runtime = std::move(initialized);
 	}
-	runtime.get()->update(frame_buffers, cameras, context, window_size);
+	else {
+		runtime.get()->update(frame_buffers, cameras, context, window_size);
+	}
 	for (const auto& draw_call : draw_calls)
 		rfl::visit([&](const auto& call) { call.execute(context, *runtime.get()); }, draw_call);
 }

@@ -1,12 +1,31 @@
 ---
 asset_type: render_pass
 asset_data:
-  textures: { }
+  textures:
+    # Named textures keep their size and contents when the window is resized.
+    height_map:
+      type: Texture2DDefinition
+      size: [1024, 1024]
+      format: Float32
+      channels: R
 
   frame_buffers:
+    height_map_buffer:
+      config:
+        DepthTest: Disabled
+        Blend: Disabled
+        CullFace: Disabled
+        PointSize: 1
+      attachments:
+        color:
+          0:
+            type: Texture2DReference
+            name: height_map
+
     back_buffer:
       config:
-        DepthTest: Enabled
+        DepthTest: Disabled
+        PointSize: 1
 
     scene_buffer:
       config:
@@ -30,6 +49,8 @@ asset_data:
             samples: 4
 
     resolve_buffer:
+      config:
+        PointSize: 1
       attachments:
         color:
           0:
@@ -38,6 +59,8 @@ asset_data:
             channels: RGBA
 
     scene_depth:
+      config:
+        PointSize: 1
       attachments:
         depth:
           type: Texture2DDefinition
@@ -52,15 +75,67 @@ asset_data:
     fov: 1.0
 
   gui_uniforms:
-    - name: u_useSpecular
-      type: bool
-      default: false
+    - name: u_terrainHeight
+      type: float
+      range: [0, 80]
+      step: 0.1
+      default: 37
+
+    - name: u_terrainTessLevel
+      type: float
+      range: [2, 64]
+      step: 1
+      default: 16
 
     - name: u_tessLevel
       type: float
-      range: [1, 64]
+      range: [2, 64]
       step: 1
-      default: 2
+      default: 8
+
+    # Full tessellation inside Near, fading to two segments per edge at Far.
+    # Distances are measured in world units from the camera to each edge midpoint.
+    - name: u_tessNear
+      type: float
+      range: [0, 100]
+      step: 1
+      default: 15
+
+    - name: u_tessFar
+      type: float
+      range: [1, 500]
+      step: 1
+      default: 120
+
+    - name: u_waveHeight
+      type: float
+      range: [0, 1.5]
+      step: 0.01
+      default: 1.0
+
+    - name: u_waveSpeed
+      type: float
+      range: [0, 2]
+      step: 0.01
+      default: 0.65
+
+    - name: u_foamWidth
+      type: float
+      range: [0.1, 3]
+      step: 0.01
+      default: 1.2
+
+    - name: u_foamAmount
+      type: float
+      range: [0, 2]
+      step: 0.01
+      default: 1.0
+
+  # Runs once before the first frame, and again when this render pass reloads.
+  preprocess_draw_calls:
+    - type: post_process
+      output_buffer: height_map_buffer
+      shader: shaders/procedural/height_map
 
   draw_calls:
     - type: clear
@@ -68,64 +143,37 @@ asset_data:
       mask: Color|Depth
       color: [0.3, 0.3, 0.3, 1.0]
 
+    # Draw opaque terrain first, so water can sample its depth for the shoreline.
     - type: single_mesh
       output_buffer: scene_buffer
-      gl_primitive: Triangles
-      shader: shaders/planet
+      gl_primitive: Patches
+      shader:
+        asset: shaders/terrain
+        config:
+          PatchVertices: 3
       mesh:
-        source: models/space/meshes/3
-        vertices: Position|Normal|TexCoords
+        source: models/terrain_grid/meshes/0
+        vertices: Position
       uniform_textures:
-        - uniform: u_texture
+        - uniform: u_heightMap
+          name: height_map
           config:
             MinFilter: Linear
             MagFilter: Linear
-          asset: textures/planets/mars
       uniform_cameras:
       - name: default_camera
         uniform: u_camera
-        uniform_members: [VP, position, direction]
+        uniform_members: [VP, position]
       gui_uniforms:
-      - u_useSpecular
+      - u_terrainHeight
+      - u_terrainTessLevel
+      - u_tessNear
+      - u_tessFar
       model_uniform: u_M
-      time_uniform: u_t
       transforms:
-      - translate: [0, -3, 0]
-      - scale: [3, 1, 3]
-
-    - output_buffer: scene_buffer
-      gl_primitive: Triangles
-      shader: shaders/planet
-      mesh:
-        source: models/plane/meshes/0
-        vertices: Position|Normal|TexCoords
-      type: single_mesh
-      uniform_textures:
-      - uniform: u_texture
-        config:
-          MinFilter: Linear
-          MagFilter: Linear
-        asset: textures/planets/mars
-      uniform_cameras:
-      - name: default_camera
-        uniform: u_camera
-        uniform_members:
-        - VP
-        - position
-        - direction
-      gui_uniforms:
-      - u_useSpecular
-      model_uniform: u_M
-      time_uniform: u_t
-      transforms:
-      - translate:
-        - 0
-        - -3
-        - 0
-      - scale:
-        - 1.03
-        - 1.03
-        - 1.03
+      # Keep the map edges deep enough to blend into the surrounding ocean.
+      - translate: [0, -20, 0]
+      - scale: [244, 1, 244]
 
     - input_buffer: scene_buffer
       output_buffer: scene_depth
@@ -142,7 +190,7 @@ asset_data:
           PatchVertices: 3
       mesh:
         source: models/plane/meshes/0
-        vertices: Position|Normal|TexCoords|Tangent|Bitangent
+        vertices: Position
       type: single_mesh
       uniform_textures:
       - uniform: u_sceneDepth
@@ -160,10 +208,15 @@ asset_data:
         - fp
       gui_uniforms:
       - u_tessLevel
+      - u_tessNear
+      - u_tessFar
+      - u_waveHeight
+      - u_waveSpeed
+      - u_foamWidth
+      - u_foamAmount
       model_uniform: u_M
       time_uniform: u_t
       transforms:
-      - translate: [0, 0, 0]
       - scale: [2, 2, 2]
 
     - input_buffer: scene_buffer
@@ -171,7 +224,22 @@ asset_data:
       mask: Color
       type: blit
 
-    - output_buffer: resolve_buffer
+    # Water samples opaque depth above; fog needs the final water surface depth.
+    - input_buffer: scene_buffer
+      output_buffer: scene_depth
+      mask: Depth
+      filter: Nearest
+      type: blit
+
+#    - type: post_process
+#      output_buffer: resolve_buffer
+#      shader: shaders/post_process/display_color
+#      uniform_textures:
+#        - uniform: u_depth
+#          name: height_map
+
+    # Keep the sampled color separate from the post-process output.
+    - output_buffer: back_buffer
       shader: shaders/post_process/gradient_sky
       type: post_process
       uniform_textures:
@@ -191,15 +259,7 @@ asset_data:
         - nearPlane
         - farPlane
 
-#    - type: post_process
-#      output_buffer: resolve_buffer
-#      shader: shaders/post_process/display_depth
-#      uniform_textures:
-#        - uniform: u_depth
-#          frame_buffer: scene_depth
-#          attachment:
-#            type: depth
-
-    - input_buffer: resolve_buffer
-      output_buffer: back_buffer
-      type: blit
+#    - type: blit
+#      input_buffer: height_map_buffer
+#      output_buffer: back_buffer
+#      mask: Color

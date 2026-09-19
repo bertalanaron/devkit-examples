@@ -10,26 +10,26 @@ asset_data:
   - name: sun
     type: csm_sun
     np: 0.1
-    fp: 500.0
+    fp: 100.0
     cascade_count: 3
     direction:
     - -0.5
     - -1.0
     - -0.25
-    shadow_resolution: 1024
-  gui_uniforms: []
+    shadow_resolution: 2024
+  gui_uniforms:
+  - name: u_showCascades
+    type: bool
+    default: true
+  - name: u_shadows
+    type: bool
+    default: true
   draw_calls:
-  - output_buffer: sun_shadow_0
+  # The sun owns a depth texture array; the geometry shader writes every cascade.
+  - output_buffer: sun_shadow
     mask: Depth
     type: clear
-  - output_buffer: sun_shadow_1
-    mask: Depth
-    type: clear
-  - output_buffer: sun_shadow_2
-    mask: Depth
-    type: clear
-  - output_buffer: sun_shadow_0
-    cascade: 0
+  - output_buffer: sun_shadow
     model_uniform: u_M
     shader: shaders/shadow_depth
     mesh:
@@ -41,9 +41,8 @@ asset_data:
     - name: sun
       uniform: u_sun
       uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
+      - lightspaceM
+      - cascadeCount
     transforms:
     - translate:
       - 0
@@ -53,8 +52,7 @@ asset_data:
       - 3
       - 1
       - 3
-  - output_buffer: sun_shadow_0
-    cascade: 0
+  - output_buffer: sun_shadow
     model_uniform: u_M
     shader: shaders/shadow_depth
     mesh:
@@ -66,109 +64,8 @@ asset_data:
     - name: sun
       uniform: u_sun
       uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
-    transforms:
-    - translate:
-      - 0
-      - 5
-      - 0
-    - scale:
-      - 1
-      - 1
-      - 1
-  - output_buffer: sun_shadow_1
-    cascade: 1
-    model_uniform: u_M
-    shader: shaders/shadow_depth
-    mesh:
-      source: models/space/meshes/3
-      vertices: Position
-    gl_primitive: Triangles
-    type: single_mesh
-    uniform_cameras:
-    - name: sun
-      uniform: u_sun
-      uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
-    transforms:
-    - translate:
-      - 0
-      - -3
-      - 0
-    - scale:
-      - 3
-      - 1
-      - 3
-  - output_buffer: sun_shadow_1
-    cascade: 1
-    model_uniform: u_M
-    shader: shaders/shadow_depth
-    mesh:
-      source: models/space/meshes/2
-      vertices: Position
-    gl_primitive: Triangles
-    type: single_mesh
-    uniform_cameras:
-    - name: sun
-      uniform: u_sun
-      uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
-    transforms:
-    - translate:
-      - 0
-      - 5
-      - 0
-    - scale:
-      - 1
-      - 1
-      - 1
-  - output_buffer: sun_shadow_2
-    cascade: 2
-    model_uniform: u_M
-    shader: shaders/shadow_depth
-    mesh:
-      source: models/space/meshes/3
-      vertices: Position
-    gl_primitive: Triangles
-    type: single_mesh
-    uniform_cameras:
-    - name: sun
-      uniform: u_sun
-      uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
-    transforms:
-    - translate:
-      - 0
-      - -3
-      - 0
-    - scale:
-      - 3
-      - 1
-      - 3
-  - output_buffer: sun_shadow_2
-    cascade: 2
-    model_uniform: u_M
-    shader: shaders/shadow_depth
-    mesh:
-      source: models/space/meshes/2
-      vertices: Position
-    gl_primitive: Triangles
-    type: single_mesh
-    uniform_cameras:
-    - name: sun
-      uniform: u_sun
-      uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
+      - lightspaceM
+      - cascadeCount
     transforms:
     - translate:
       - 0
@@ -194,22 +91,8 @@ asset_data:
       vertices: Position|Normal
     type: single_mesh
     uniform_textures:
-    - uniform: u_shadow0
-      frame_buffer: sun_shadow_0
-      attachment:
-        type: depth
-      config:
-        MinFilter: Nearest
-        MagFilter: Nearest
-    - uniform: u_shadow1
-      frame_buffer: sun_shadow_1
-      attachment:
-        type: depth
-      config:
-        MinFilter: Nearest
-        MagFilter: Nearest
-    - uniform: u_shadow2
-      frame_buffer: sun_shadow_2
+    - uniform: u_shadowMap
+      frame_buffer: sun_shadow
       attachment:
         type: depth
       config:
@@ -227,9 +110,10 @@ asset_data:
     - name: sun
       uniform: u_sun
       uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
+      - lightspaceM
+      - splitDepths
+      - cascadeCount
+      - direction
     model_uniform: u_M
     transforms:
     - translate:
@@ -240,6 +124,9 @@ asset_data:
       - 3
       - 1
       - 3
+    gui_uniforms:
+    - u_showCascades
+    - u_shadows
   - output_buffer: scene_buffer
     gl_primitive: Triangles
     shader: shaders/csm_lit
@@ -248,22 +135,8 @@ asset_data:
       vertices: Position|Normal
     type: single_mesh
     uniform_textures:
-    - uniform: u_shadow0
-      frame_buffer: sun_shadow_0
-      attachment:
-        type: depth
-      config:
-        MinFilter: Nearest
-        MagFilter: Nearest
-    - uniform: u_shadow1
-      frame_buffer: sun_shadow_1
-      attachment:
-        type: depth
-      config:
-        MinFilter: Nearest
-        MagFilter: Nearest
-    - uniform: u_shadow2
-      frame_buffer: sun_shadow_2
+    - uniform: u_shadowMap
+      frame_buffer: sun_shadow
       attachment:
         type: depth
       config:
@@ -281,9 +154,10 @@ asset_data:
     - name: sun
       uniform: u_sun
       uniform_members:
-      - lightspaceM[0]
-      - lightspaceM[1]
-      - lightspaceM[2]
+      - lightspaceM
+      - splitDepths
+      - cascadeCount
+      - direction
     model_uniform: u_M
     transforms:
     - translate:
@@ -294,6 +168,9 @@ asset_data:
       - 1
       - 1
       - 1
+    gui_uniforms:
+    - u_showCascades
+    - u_shadows
   - input_buffer: scene_buffer
     output_buffer: back_buffer
     type: blit
@@ -302,10 +179,12 @@ asset_data:
     back_buffer:
       config:
         DepthTest: Enabled
+        PointSize: 1
     scene_buffer:
       config:
         DepthTest: Enabled
         CullFace: Enabled
+        PointSize: 1
       attachments:
         color:
           0:

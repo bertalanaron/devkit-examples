@@ -43,7 +43,9 @@ public:
 	dk::gfx::Shader& shader(RenderContext& context, const primitives::ShaderReference& reference) const;
 
 	const dk::gfx::Camera& camera(const std::string& name) const;
+	glm::vec3 camera_direction(const std::string& name) const;
 	glm::mat4 lightspace_matrix(const std::string& name, std::size_t index) const;
+	const std::vector<float>& cascade_splits(const std::string& name) const;
 
 	void reset();
 
@@ -54,13 +56,14 @@ private:
 
 	struct CsmSunCameraRuntime {
 		dk::gfx::Camera camera;
+		glm::vec3 direction;
 		std::vector<glm::mat4> lightspace_matrices;
-		std::vector<std::unique_ptr<dk::gfx::FrameBuffer>> shadow_buffers;
+		std::vector<float> split_depths;
+		std::unique_ptr<dk::gfx::FrameBuffer> shadow_buffer;
 	};
 
 	using CameraRuntime = std::variant<MainCameraRuntime, CsmSunCameraRuntime>;
 
-	std::vector<std::unique_ptr<dk::gfx::Texture2DArray>> m_frame_buffer_texture_arrays;
 	std::unordered_map<std::string, std::unique_ptr<dk::gfx::FrameBuffer>> m_frame_buffers;
 	std::unordered_map<std::string, dk::gfx::FrameBuffer*> m_frame_buffer_views;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> m_textures;
@@ -73,6 +76,7 @@ private:
 		const glm::ivec2& default_size);
 	void initialize_cameras(const std::vector<primitives::CameraBinding>& cameras);
 	void update_cameras(const std::vector<primitives::CameraBinding>& cameras, const RenderContext& context);
+	const CsmSunCameraRuntime& csm_camera(const std::string& name) const;
 
 	template <typename T>
 	T& texture(const std::string& name)
@@ -89,6 +93,7 @@ struct RenderPass {
 	primitives::FrameBufferCollectionDefinition frame_buffers;
 	std::vector<primitives::CameraBinding> cameras;
 	std::vector<GuiUniform> gui_uniforms;
+	std::optional<std::vector<draw_calls::DrawCall>> preprocess_draw_calls;
 	std::vector<draw_calls::DrawCall> draw_calls;
 	mutable rfl::Skip<std::shared_ptr<Runtime>> runtime;
 

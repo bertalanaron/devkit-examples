@@ -1,0 +1,49 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  fragment: |
+    #version 330 core
+
+    in vec2 UV;
+    layout(location = 0) out float height;
+
+    float hash(vec2 p)
+    {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+
+    float noise(vec2 p)
+    {
+        vec2 cell = floor(p);
+        vec2 f = fract(p);
+        vec2 blend = f * f * (3.0 - 2.0 * f);
+        return mix(
+            mix(hash(cell), hash(cell + vec2(1.0, 0.0)), blend.x),
+            mix(hash(cell + vec2(0.0, 1.0)), hash(cell + vec2(1.0, 1.0)), blend.x),
+            blend.y);
+    }
+
+    void main()
+    {
+        vec2 p = UV * 6.0;
+        float value = 0.0;
+        float amplitude = 0.5;
+        float weight = 0.0;
+        for (int octave = 0; octave < 6; ++octave) {
+            value += amplitude * noise(p);
+            weight += amplitude;
+            p = p * 2.0 + vec2(17.3, 9.2);
+            amplitude *= 0.5;
+        }
+        // One central island, with a smooth shoreline just inside the texture.
+        float radius = length((UV - vec2(0.5)) * 2.0);
+        float island = 1.0 - smoothstep(0.0, 0.98, radius);
+
+        // Fade relief at both the summit and the shore so noise cannot create
+        // detached islands or lift the texture edges above sea level.
+        float detail = 2.0 * value / weight - 1.0;
+        height = island + 0.3 * detail * island * (1.0 - island);
+
+        height = island * value;
+        height = min(island, -1.0 * island + 0.999) * value;
+    }

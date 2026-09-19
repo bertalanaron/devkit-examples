@@ -134,7 +134,7 @@ void bind_uniform_cameras(
 			else if (member == "position")
 				shader.uniforms().set(target, camera.position);
 			else if (member == "direction")
-				shader.uniforms().set(target, camera.lookat - camera.position);
+				shader.uniforms().set(target, runtime.camera_direction(binding.name));
 			else if (member == "asp")
 				shader.uniforms().set(target, camera.asp);
 			else if (member == "fov")
@@ -143,6 +143,18 @@ void bind_uniform_cameras(
 				shader.uniforms().set(target, camera.np);
 			else if (member == "fp" || member == "farPlane")
 				shader.uniforms().set(target, camera.fp);
+			else if (member == "cascadeCount")
+				shader.uniforms().set(target, static_cast<int>(runtime.cascade_splits(binding.name).size()));
+			else if (member == "splitDepths" || member == "lightspaceM") {
+				const auto& splits = runtime.cascade_splits(binding.name);
+				for (std::size_t i = 0; i < splits.size(); ++i) {
+					const auto element = target + "[" + std::to_string(i) + "]";
+					if (member == "splitDepths")
+						shader.uniforms().set(element, splits[i]);
+					else
+						shader.uniforms().set(element, runtime.lightspace_matrix(binding.name, i));
+				}
+			}
 			else if (member.starts_with("lightspaceM[") && member.back() == ']') {
 				const auto index_text = member.substr(12, member.size() - 13);
 				std::size_t index = 0;

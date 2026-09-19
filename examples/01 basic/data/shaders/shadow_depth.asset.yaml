@@ -2,27 +2,40 @@ asset_type: shader
 asset_data:
   source_location: inplace
   vertex: |
-    #version 330 core
+    #version 400 core
 
-    layout (location = 0) in vec3 vertex;
+    layout(location = 0) in vec3 vertex;
+    uniform mat4 u_M;
+
+    void main()
+    {
+        // Pass world positions to the geometry stage for all cascades.
+        gl_Position = vec4(vertex, 1.0) * u_M;
+    }
+  geometry: |
+    #version 400 core
+
+    layout(triangles, invocations = 4) in;
+    layout(triangle_strip, max_vertices = 3) out;
 
     struct Sun {
         mat4 lightspaceM[4];
+        int cascadeCount;
     }; uniform Sun u_sun;
 
-    uniform mat4 u_M;
-    uniform int u_cascade;
-
     void main()
     {
-        gl_Position = (vec4(vertex, 1.0) * u_M) * u_sun.lightspaceM[u_cascade];
+        if (gl_InvocationID >= u_sun.cascadeCount)
+            return;
+        for (int vertex = 0; vertex < 3; ++vertex) {
+            // EmitVertex makes output values undefined: set the layer every time.
+            gl_Layer = gl_InvocationID;
+            gl_Position = gl_in[vertex].gl_Position * u_sun.lightspaceM[gl_InvocationID];
+            EmitVertex();
+        }
+        EndPrimitive();
     }
   fragment: |
-    #version 330 core
+    #version 400 core
 
-    layout (location = 0) out vec4 FragColor;
-
-    void main()
-    {
-        FragColor = vec4(1, 0, 0, 1);
-    }
+    void main() { }

@@ -1,0 +1,15 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  fragment: |
+    #version 330
+
+    in vec2 UV;
+    out vec4 FragColor;
+
+    uniform sampler2D u_color;
+    
+    void main()
+    {
+        FragColor = texture(u_color, UV);
+    }

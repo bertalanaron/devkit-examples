@@ -61,6 +61,10 @@ int main(int argc, char** argv)
 		render_pass_name = "scenes/" + render_pass_name;
 	if (render_pass_name.ends_with(".asset.yaml"))
 		render_pass_name.erase(render_pass_name.size() - std::string(".asset.yaml").size());
+	if (render_pass_name == "scenes/asteroid_belt") {
+		context.camera.position = {55.f, 38.f, -65.f};
+		context.camera.lookat = {0.f, 2.f, 0.f};
+	}
 
 	io::Window window;
 	window.open(1);
