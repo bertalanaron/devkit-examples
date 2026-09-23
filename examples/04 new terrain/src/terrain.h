@@ -125,7 +125,9 @@ private:
 
 	Texture2D*       m_heightmap;
 	Shader*          m_shader;
-	VertexBuffer     m_vertices = dk::common::id<TerrainVertex>;
+	// Construct before a window is opened; upload once on the render thread.
+	std::vector<TerrainVertex> m_vertices;
+	Buffer m_vertexBuffer;
 	Sun              m_sun;
 };
 

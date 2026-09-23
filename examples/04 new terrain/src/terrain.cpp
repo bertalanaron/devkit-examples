@@ -25,19 +25,19 @@ Terrain::Terrain(AssetManager& assets, const std::filesystem::path& heightmapPat
 	{
 		for(unsigned j = 0; j <= rezY-1; j++)
 		{
-			m_vertices.modify().push_back(TerrainVertex{ 
+			m_vertices.push_back(TerrainVertex{
 				glm::vec3(-size.x/2.0f + size.x*i/(float)rezX, 0.0f, -size.y/2.0f + size.y*j/(float)rezY), 
 				glm::vec2(i / (float)rezX, j / (float)rezY) });
 
-			m_vertices.modify().push_back(TerrainVertex{ 
+			m_vertices.push_back(TerrainVertex{
 				glm::vec3(-size.x/2.0f + size.x*(i+1)/(float)rezX, 0.0f, -size.y/2.0f + size.y*j/(float)rezY), 
 				glm::vec2((i+1) / (float)rezX, j / (float)rezY) });
 
-			m_vertices.modify().push_back(TerrainVertex{ 
+			m_vertices.push_back(TerrainVertex{
 				glm::vec3(-size.x/2.0f + size.x*i/(float)rezX, 0.0f, -size.y/2.0f + size.y*(j+1)/(float)rezY), 
 				glm::vec2(i / (float)rezX, (j+1) / (float)rezY) });
 
-			m_vertices.modify().push_back(TerrainVertex{ 
+			m_vertices.push_back(TerrainVertex{
 				glm::vec3(-size.x/2.0f + size.x*(i+1)/(float)rezX, 0.0f, -size.y/2.0f + size.y*(j+1)/(float)rezY), 
 				glm::vec2((i+1) / (float)rezX, (j+1) / (float)rezY) });
 		}
@@ -46,6 +46,13 @@ Terrain::Terrain(AssetManager& assets, const std::filesystem::path& heightmapPat
 
 void Terrain::render(FrameBuffer& out, const Camera& camera, AssetManager& assets, const Frame& frame)
 {
+	if (m_vertexBuffer.sizeBytes() == 0) {
+		m_vertexBuffer.setData(std::as_bytes(std::span(m_vertices)));
+		m_vertices.clear();
+		m_vertices.shrink_to_fit();
+	}
+	const VertexBufferView vertices(m_vertexBuffer.view(), dk::common::id<TerrainVertex>);
+
 	const glm::vec3 sun_direction = glm::normalize(glm::vec3(1, -1, 1));
 	m_sun.camera.lookat = camera.position;
 	m_sun.camera.position = camera.position - sun_direction * 40.f;
@@ -70,13 +77,13 @@ void Terrain::render(FrameBuffer& out, const Camera& camera, AssetManager& asset
 			sun_shader.uniforms().set(namestr, config.property_value(prop));
 		});
 		// Set shader layout
-		sun_shader.layout(m_vertices);
+		sun_shader.layout(vertices);
 
 		// Resize buffer and render terrain
 		m_sun.framebuffer.resize(frame.viewport().size());
 		m_sun.framebuffer.setViewport(frame.viewport());
 		m_sun.framebuffer.clear(Clear::Color | Clear::Depth);
-		m_sun.framebuffer.render(sun_shader, m_vertices, Primitive::Patches);
+		m_sun.framebuffer.render(sun_shader, vertices, Primitive::Patches);
 	}
 	
 	// Render scene from the players point of view
@@ -102,7 +109,7 @@ void Terrain::render(FrameBuffer& out, const Camera& camera, AssetManager& asset
 		config.reset_dirty();
 
 		// Set vertex layout
-		m_shader->layout(m_vertices);
+		m_shader->layout(vertices);
 
 		// Setup textures
 		auto& terrainTex = assets.get<Texture2D>("/textures/grass.png");
@@ -121,7 +128,7 @@ void Terrain::render(FrameBuffer& out, const Camera& camera, AssetManager& asset
 
 		// Resize buffer and render terrain
 		out.clear(Clear::Color | Clear::Depth, dk::colors::black);
-		out.render(*m_shader, m_vertices, Primitive::Patches);
+		out.render(*m_shader, vertices, Primitive::Patches);
 	}
 
 	if (ImGui::Begin("sun view")) {

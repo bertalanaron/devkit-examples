@@ -1,5 +1,10 @@
 # devkit examples
 
+The basic example draws meshes through GPU index views. The new-terrain example
+uploads its patch vertices once to a `dk::gfx::Buffer`, then shares a vertex view
+between the shadow and main passes. Existing `VertexSink` drawing uses the same
+buffer storage internally. See [GPU buffer usage and lifetime rules](devkit/docs/gpu_buffers.md).
+
 ## Prerequisites
 
 - CMake 3.21 or newer

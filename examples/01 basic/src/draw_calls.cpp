@@ -260,5 +260,5 @@ void draw_calls::SingleMeshDrawCall::execute(RenderContext& context, Runtime& ru
 	if (cascade)
 		program.uniforms().set("u_cascade", *cascade);
 	set_shader_uniforms(program, context, runtime, *this);
-	runtime.frame_buffer(output_buffer).render(program, mesh_mask.indices, gl_primitive);
+	runtime.frame_buffer(output_buffer).render(program, mesh_mask.indices.view(), gl_primitive);
 }
