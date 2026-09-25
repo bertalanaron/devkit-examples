@@ -1,0 +1,89 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  compute: |
+    #version 430 core
+    layout(local_size_x = 8, local_size_y = 8) in;
+
+    // Keep this std430 layout in sync with rocks.asset.yaml.
+    struct Rock { vec4 rootSeed; vec4 scaleYaw; vec4 tiltColor; };
+    layout(std430, binding = 0) writeonly buffer Instances { Rock rocks[]; };
+    layout(std430, binding = 1) buffer Commands {
+        uint count;
+        uint instanceCount;
+        uint first;
+        uint baseInstance;
+    };
+    uniform sampler2D u_heightMap;
+    uniform mat4 u_M;
+    uniform float u_terrainHeight;
+    uniform float u_rockDensity;
+    uniform float u_rockSize;
+
+    float hash(vec3 p)
+    {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+    }
+
+    float noise(vec2 p)
+    {
+        vec2 cell = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(vec3(cell, 7.1)), hash(vec3(cell + vec2(1, 0), 7.1)), f.x),
+                   mix(hash(vec3(cell + vec2(0, 1), 7.1)), hash(vec3(cell + 1.0, 7.1)), f.x), f.y);
+    }
+
+    vec3 surface(vec2 uv)
+    {
+        vec2 halfTexel = 0.5 / vec2(textureSize(u_heightMap, 0));
+        float height = textureLod(u_heightMap, clamp(uv, halfTexel, 1.0 - halfTexel), 0.0).r;
+        return (vec4(uv.x - 0.5, height * u_terrainHeight, uv.y - 0.5, 1.0) * u_M).xyz;
+    }
+
+    void main()
+    {
+        if (gl_GlobalInvocationID.z != 0u) return;
+        uvec2 cell = gl_GlobalInvocationID.xy;
+        uvec2 grid = gl_NumWorkGroups.xy * gl_WorkGroupSize.xy;
+        if (cell.y * grid.x + cell.x >= uint(rocks.length())) return;
+        vec2 jitter = vec2(hash(vec3(cell, 43.1)), hash(vec3(cell, 87.3)));
+        vec2 uv = (vec2(cell) + mix(vec2(0.15), vec2(0.85), jitter)) / vec2(grid);
+        vec3 root = surface(uv);
+        // Sea level is zero, as in the water shader. Leave dry land and deep
+        // water empty; varied rock heights make only some tops break the surface.
+        if (root.y >= -0.12 || root.y < -3.5) return;
+
+        // Coherent, world-space density patches with a hard zero region.
+        float coverage = 0.75 * noise(root.xz / 28.0 + vec2(13.4, 7.8))
+                    + 0.25 * noise(root.xz / 11.0 + vec2(3.2, 19.1));
+        float density = smoothstep(0.46, 0.72, coverage) * clamp(u_rockDensity, 0.0, 1.0);
+        if (hash(vec3(cell, 63.8)) >= density) return;
+
+        // Shallow seabed alone is insufficient: require land within eight
+        // world units so flat offshore shelves do not fill with rocks.
+        vec2 extent = vec2(length((vec4(1, 0, 0, 0) * u_M).xyz),
+                           length((vec4(0, 0, 1, 0) * u_M).xyz));
+        vec2 radius = 8.0 / max(extent, vec2(0.001));
+        bool shoreline = false;
+        for (int direction = 0; direction < 8; ++direction) {
+            float angle = float(direction) * 0.785398163;
+            vec2 neighbor = uv + vec2(cos(angle), sin(angle)) * radius;
+            if (all(greaterThanEqual(neighbor, vec2(0))) && all(lessThanEqual(neighbor, vec2(1))))
+                shoreline = shoreline || surface(neighbor).y > 0.0;
+        }
+        if (!shoreline) return;
+
+        float sizeRandom = hash(vec3(cell, 12.9));
+        float size = (0.55 + 2.1 * sizeRandom * sizeRandom) * max(u_rockSize, 0.01);
+        vec3 scale = size * vec3(mix(0.75, 1.45, hash(vec3(cell, 5.3))),
+                                 mix(0.6, 1.35, hash(vec3(cell, 9.4))),
+                                 mix(0.7, 1.3, hash(vec3(cell, 21.8))));
+        uint index = atomicAdd(instanceCount, 1u);
+        rocks[index].rootSeed = vec4(root, hash(vec3(cell, 37.6)));
+        rocks[index].scaleYaw = vec4(scale, hash(vec3(cell, 75.1)) * 6.283185307);
+        rocks[index].tiltColor = vec4((jitter - 0.5) * 0.7,
+                                     hash(vec3(cell, 92.3)), hash(vec3(cell, 51.7)));
+    }

@@ -67,10 +67,43 @@ void bind_attachment(
 
 void Runtime::reset()
 {
+	m_buffers.clear();
 	m_frame_buffer_views.clear();
 	m_frame_buffers.clear();
 	m_textures.clear();
 	m_cameras.clear();
+}
+
+void Runtime::initialize_buffers(const std::optional<std::map<std::string, primitives::BufferDefinition>>& definitions)
+{
+	if (!definitions) return;
+	for (const auto& [name, definition] : *definitions) {
+		if (name.empty() || definition.size_bytes == 0)
+			throw std::invalid_argument("named GPU buffers require a name and a positive size");
+		dk::gfx::Buffer created;
+		created.allocate(definition.size_bytes, definition.usage.value_or(dk::gfx::Buffer::Usage::Dynamic));
+		if (definition.initial_words)
+			created.upload(0, std::as_bytes(std::span(*definition.initial_words)));
+		if (!m_buffers.emplace(name, std::move(created)).second)
+			throw std::invalid_argument("duplicate GPU buffer '" + name + "'");
+	}
+}
+
+dk::gfx::Buffer& Runtime::buffer(const std::string& name)
+{
+	const auto found = m_buffers.find(name);
+	if (found == m_buffers.end())
+		throw std::out_of_range("unknown GPU buffer '" + name + "'");
+	return found->second;
+}
+
+dk::gfx::BufferView Runtime::buffer_view(const primitives::BufferReference& reference)
+{
+	auto& storage = buffer(reference.name);
+	const auto offset = reference.offset_bytes.value_or(0);
+	if (offset > storage.sizeBytes())
+		throw std::out_of_range("GPU buffer offset exceeds its allocation");
+	return storage.view(offset, reference.size_bytes.value_or(storage.sizeBytes() - offset));
 }
 
 void Runtime::initialize(
@@ -477,7 +510,10 @@ void RenderPass::execute(RenderContext& context) const
 {
 	if (context.updated) {
 		for (auto&& [_, shader] : context.assets.of_type("shader"))
+		{
 			shader.as<dk::gfx::Shader>().clearTextureUnit();
+			shader.as<dk::gfx::Shader>().storageBuffers().clear();
+		}
 		context.updated = false;
 	}
 	if (!context.frame)
@@ -488,6 +524,7 @@ void RenderPass::execute(RenderContext& context) const
 	if (!runtime.get()) {
 		auto initialized = std::make_shared<Runtime>();
 		initialized->initialize(textures, frame_buffers, cameras, window_size);
+		initialized->initialize_buffers(buffers);
 		initialized->update(frame_buffers, cameras, context, window_size);
 		try {
 			if (preprocess_draw_calls)

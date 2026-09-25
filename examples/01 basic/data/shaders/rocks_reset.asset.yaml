@@ -1,0 +1,20 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  compute: |
+    #version 430 core
+    layout(local_size_x = 1) in;
+    layout(std430, binding = 1) writeonly buffer Commands {
+        uint count;
+        uint instanceCount;
+        uint first;
+        uint baseInstance;
+    };
+    void main()
+    {
+        // Twenty icosahedron faces, subdivided into four triangles each.
+        count = 240u;
+        instanceCount = 0u;
+        first = 0u;
+        baseInstance = 0u;
+    }

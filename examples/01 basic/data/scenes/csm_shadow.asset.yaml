@@ -96,8 +96,10 @@ asset_data:
       attachment:
         type: depth
       config:
-        MinFilter: Nearest
-        MagFilter: Nearest
+        MinFilter: Linear
+        MagFilter: Linear
+        CompareMode: CompareRefToTexture
+        CompareFunc: Lequal
     uniform_cameras:
     - name: default_camera
       uniform: u_camera
@@ -140,8 +142,10 @@ asset_data:
       attachment:
         type: depth
       config:
-        MinFilter: Nearest
-        MagFilter: Nearest
+        MinFilter: Linear
+        MagFilter: Linear
+        CompareMode: CompareRefToTexture
+        CompareFunc: Lequal
     uniform_cameras:
     - name: default_camera
       uniform: u_camera

@@ -13,6 +13,8 @@ asset_data:
     struct Camera {
         float nearPlane;
         float farPlane;
+        mat4 VP;
+        vec3 position;
     }; uniform Camera u_camera;
 
     float linearize_depth(float d,float zNear,float zFar)
@@ -23,11 +25,27 @@ asset_data:
 
     void main()
     {
-        float depth = linearize_depth(texture(u_depth, UV).r, u_camera.nearPlane, u_camera.farPlane);
+        // Reconstruct the world-space view ray so the horizon follows the
+        // camera, including when looking up or orbiting around the island.
+        // Devkit uploads transposed matrices: vectors multiply on the left.
+        vec4 farPoint = vec4(UV * 2.0 - 1.0, 1.0, 1.0) * inverse(u_camera.VP);
+        vec3 direction = normalize(farPoint.xyz / farPoint.w - u_camera.position);
+        float elevation = max(direction.y, 0.0);
+
+        // Maritime haze washes out the horizon; blue deepens overhead.
+        vec3 horizon = vec3(0.78, 0.85, 0.89);
+        vec3 lowSky = vec3(0.38, 0.61, 0.81);
+        vec3 zenith = vec3(0.12, 0.32, 0.62);
+        vec3 sky = mix(horizon, lowSky, 1.0 - exp(-elevation * 7.0));
+        sky = mix(sky, zenith, pow(elevation, 0.65));
+
+        float rawDepth = texture(u_depth, UV).r;
+        float depth = linearize_depth(rawDepth, u_camera.nearPlane, u_camera.farPlane);
         depth = (depth - u_camera.nearPlane) / (u_camera.farPlane - u_camera.nearPlane);
         depth = smoothstep(0.0, 0.9, depth);
 
-        vec3 fog_color = vec3(.4, .5, .7);
         vec3 scene_color = texture(u_color, UV).rgb;
-        FragColor = vec4(mix(scene_color, fog_color, depth), 1);
+        // The distant sea fades into the same haze as the sky at the horizon.
+        vec3 color = rawDepth >= 0.999999 ? sky : mix(scene_color, horizon, depth);
+        FragColor = vec4(color, 1.0);
     }

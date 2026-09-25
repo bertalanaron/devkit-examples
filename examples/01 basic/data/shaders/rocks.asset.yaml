@@ -1,0 +1,93 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  vertex: |
+    #version 430 core
+    struct Rock { vec4 rootSeed; vec4 scaleYaw; vec4 tiltColor; };
+    layout(std430, binding = 0) readonly buffer Instances { Rock rocks[]; };
+    struct Camera { mat4 VP; vec3 position; }; uniform Camera u_camera;
+    out vec3 Position;
+    flat out vec2 ColorVariation;
+
+    const float phi = 1.618033989;
+    const vec3 vertices[12] = vec3[](
+        vec3(-1, phi, 0), vec3(1, phi, 0), vec3(-1, -phi, 0), vec3(1, -phi, 0),
+        vec3(0, -1, phi), vec3(0, 1, phi), vec3(0, -1, -phi), vec3(0, 1, -phi),
+        vec3(phi, 0, -1), vec3(phi, 0, 1), vec3(-phi, 0, -1), vec3(-phi, 0, 1));
+    const ivec3 faces[20] = ivec3[](
+        ivec3(0,11,5), ivec3(0,5,1), ivec3(0,1,7), ivec3(0,7,10), ivec3(0,10,11),
+        ivec3(1,5,9), ivec3(5,11,4), ivec3(11,10,2), ivec3(10,7,6), ivec3(7,1,8),
+        ivec3(3,9,4), ivec3(3,4,2), ivec3(3,2,6), ivec3(3,6,8), ivec3(3,8,9),
+        ivec3(4,9,5), ivec3(2,4,11), ivec3(6,2,10), ivec3(8,6,7), ivec3(9,8,1));
+    const ivec3 subdivisions[4] = ivec3[](ivec3(0,3,5), ivec3(3,1,4), ivec3(5,4,2), ivec3(3,4,5));
+
+    float hash(vec3 p)
+    {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+    }
+
+    void main()
+    {
+        Rock rock = rocks[gl_InstanceID];
+        ivec3 face = faces[gl_VertexID / 12];
+        vec3 a = normalize(vertices[face.x]);
+        vec3 b = normalize(vertices[face.y]);
+        vec3 c = normalize(vertices[face.z]);
+        vec3 points[6] = vec3[](a, b, c, normalize(a+b), normalize(b+c), normalize(c+a));
+        vec3 p = points[subdivisions[(gl_VertexID % 12) / 3][gl_VertexID % 3]];
+        // Shared vertices deform identically, preserving a closed, faceted solid.
+        p *= mix(0.78, 1.16, hash(p * 7.3 + rock.rootSeed.w * 41.0));
+        p.x += 0.15 * p.y * p.y * sin(rock.rootSeed.w * 37.0);
+        p.z += 0.12 * p.x * p.y;
+        p *= rock.scaleYaw.xyz;
+        float cx = cos(rock.tiltColor.x), sx = sin(rock.tiltColor.x);
+        float cz = cos(rock.tiltColor.y), sz = sin(rock.tiltColor.y);
+        p.yz = mat2(cx, sx, -sx, cx) * p.yz;
+        p.xy = mat2(cz, sz, -sz, cz) * p.xy;
+        float cy = cos(rock.scaleYaw.w), sy = sin(rock.scaleYaw.w);
+        p.xz = mat2(cy, sy, -sy, cy) * p.xz;
+        // Bury the lower portion in the seabed instead of balancing on a point.
+        Position = rock.rootSeed.xyz + p + vec3(0, 0.3 * rock.scaleYaw.y, 0);
+        ColorVariation = rock.tiltColor.zw;
+        gl_Position = vec4(Position, 1.0) * u_camera.VP;
+    }
+
+  fragment: |
+    #version 430 core
+    in vec3 Position;
+    flat in vec2 ColorVariation;
+    out vec4 FragColor;
+
+    float hash(vec3 p)
+    {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+    }
+
+    float noise(vec3 p)
+    {
+        vec3 c = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(hash(c), hash(c+vec3(1,0,0)), f.x),
+                       mix(hash(c+vec3(0,1,0)), hash(c+vec3(1,1,0)), f.x), f.y),
+                   mix(mix(hash(c+vec3(0,0,1)), hash(c+vec3(1,0,1)), f.x),
+                       mix(hash(c+vec3(0,1,1)), hash(c+vec3(1,1,1)), f.x), f.y), f.z);
+    }
+
+    void main()
+    {
+        vec3 normal = normalize(cross(dFdx(Position), dFdy(Position)));
+        vec3 color = mix(vec3(0.27, 0.30, 0.32), vec3(0.43, 0.36, 0.27), ColorVariation.x);
+        color *= mix(0.7, 1.25, ColorVariation.y);
+        float mottling = noise(Position * 2.4 + ColorVariation.x * 23.0);
+        float grain = mix(noise(Position * 32.0), 0.5,
+                         smoothstep(0.3, 1.0, length(fwidth(Position * 32.0))));
+        color *= mix(0.72, 1.18, mottling) * mix(0.9, 1.1, grain);
+        float dry = smoothstep(-0.25, 0.65, Position.y);
+        color *= mix(0.55, 1.0, dry);
+        vec3 light = normalize(vec3(-0.35, 0.8, 0.25));
+        FragColor = vec4(color * (0.3 + 0.7 * max(dot(normal, light), 0.0)), 1.0);
+    }

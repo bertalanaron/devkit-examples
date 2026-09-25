@@ -143,6 +143,23 @@ struct TextureCollectionDefinition {
 	rfl::ExtraFields<textures::TextureDefinition> textures;
 };
 
+struct BufferDefinition {
+	std::size_t size_bytes;
+	std::optional<dk::gfx::Buffer::Usage> usage;
+	std::optional<std::vector<std::uint32_t>> initial_words;
+};
+
+struct BufferReference {
+	std::string name;
+	std::optional<std::size_t> offset_bytes;
+	std::optional<std::size_t> size_bytes;
+};
+
+struct ShaderStorageBinding {
+	unsigned binding;
+	BufferReference buffer;
+};
+
 struct FrameBufferDefinition {
 	struct Attachments {
 		std::optional<std::map<int, textures::FrameBufferAttachment>> color;

@@ -78,7 +78,44 @@ struct SingleMeshDrawCall {
 	void execute(RenderContext&, Runtime&) const;
 };
 
+struct ComputeDispatch {
+	using Tag = rfl::Literal<"dispatch">;
+	primitives::ShaderReference shader;
+	std::array<std::uint32_t, 3> groups;
+	std::optional<std::vector<primitives::ShaderStorageBinding>> storage_buffers;
+	std::optional<std::vector<primitives::ShaderUniformTexture>> uniform_textures;
+	std::optional<std::vector<std::string>> gui_uniforms;
+	std::optional<std::vector<UniformCameraBinding>> uniform_cameras;
+	std::optional<std::vector<primitives::transforms::Transform>> transforms;
+	std::optional<std::string> model_uniform;
+	void execute(RenderContext&, Runtime&) const;
+};
+
+struct MemoryBarrier {
+	using Tag = rfl::Literal<"memory_barrier">;
+	std::vector<dk::gfx::Barrier> barriers;
+	void execute(RenderContext&, Runtime&) const;
+};
+
+struct IndirectDrawCall {
+	using Tag = rfl::Literal<"draw_indirect">;
+	primitives::FrameBufferReference output_buffer;
+	primitives::ShaderReference shader;
+	primitives::BufferReference commands;
+	std::optional<std::uint32_t> draw_count;
+	std::optional<std::uint32_t> stride_bytes;
+	std::optional<MeshBinding> mesh; // Omit for procedural vertices using gl_VertexID.
+	std::optional<std::vector<primitives::ShaderStorageBinding>> storage_buffers;
+	std::optional<std::vector<primitives::ShaderUniformTexture>> uniform_textures;
+	std::optional<std::vector<std::string>> gui_uniforms;
+	std::optional<std::vector<UniformCameraBinding>> uniform_cameras;
+	std::optional<std::string> time_uniform;
+	dk::gfx::Primitive gl_primitive = dk::gfx::Primitive::Triangles;
+	void execute(RenderContext&, Runtime&) const;
+};
+
 using DrawCall = rfl::TaggedUnion<
-	"type", Clear, BlitDrawCall, PostProcessDrawCall, SingleMeshDrawCall>;
+	"type", Clear, BlitDrawCall, PostProcessDrawCall, SingleMeshDrawCall,
+	ComputeDispatch, MemoryBarrier, IndirectDrawCall>;
 
 } // namespace draw_calls

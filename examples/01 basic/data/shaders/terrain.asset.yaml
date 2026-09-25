@@ -139,6 +139,31 @@ asset_data:
             blend.z);
     }
 
+    // Keep this classification in sync with grass_place.asset.yaml. Material
+    // membership uses world-space noise, independent of fragment derivatives.
+    float materialNoise(vec3 p)
+    {
+        float result = 0.0;
+        float weight = 0.5;
+        for (int octave = 0; octave < 4; ++octave) {
+            result += weight * noise(p);
+            p = p * 2.0 + vec3(17.3, 9.2, 5.7);
+            weight *= 0.5;
+        }
+        return result / 0.9375;
+    }
+
+    vec2 materialMasks(vec3 position, vec3 normal)
+    {
+        float boundaryNoise = 2.0 * materialNoise(
+            vec3(position.x, 0.0, position.z) * max(u_materialNoiseScale, 0.001)) - 1.0;
+        float noisyHeight = position.y + boundaryNoise * max(u_materialNoiseAmount, 0.0);
+        float grassMask = smoothstep(u_grassHeight - 0.25, u_grassHeight + 0.25, noisyHeight);
+        float threshold = clamp(u_stoneNormalThreshold, 0.0, 1.0);
+        float stoneMask = 1.0 - smoothstep(threshold - 0.025, threshold + 0.025, normal.y);
+        return vec2(grassMask, stoneMask);
+    }
+
     float filteredNoise(vec3 p)
     {
         // Fade detail smaller than a pixel to avoid shimmering at a distance.
@@ -175,18 +200,9 @@ asset_data:
         vec3 stone = vec3(mix(0.30, 0.57, rock))
                    * mix(0.9, 1.1, filteredNoise(Position * 8.0));
 
-        // Noise perturbs the sand/grass boundary in world-space height units.
-        float boundaryNoise = 2.0 * terrainNoise(
-            vec3(Position.x, 0.0, Position.z) * max(u_materialNoiseScale, 0.001)) - 1.0;
-        float noisyHeight = Position.y + boundaryNoise * max(u_materialNoiseAmount, 0.0);
-        float heightBlend = max(fwidth(noisyHeight), 0.25);
-        float grassMask = smoothstep(u_grassHeight - heightBlend, u_grassHeight + heightBlend, noisyHeight);
-
-        // Upward-facing surfaces are sand/grass; steep and downward faces are stone.
-        float skyFacing = dot(normal, vec3(0.0, 1.0, 0.0));
-        float threshold = clamp(u_stoneNormalThreshold, 0.0, 1.0);
-        float slopeBlend = max(fwidth(skyFacing), 0.025);
-        float stoneMask = 1.0 - smoothstep(threshold - slopeBlend, threshold + slopeBlend, skyFacing);
+        vec2 masks = materialMasks(Position, normal);
+        float grassMask = masks.x;
+        float stoneMask = masks.y;
         vec3 color = mix(mix(sand, grass, grassMask), stone, stoneMask);
 
         vec3 light = normalize(vec3(-0.35, 0.8, 0.25));

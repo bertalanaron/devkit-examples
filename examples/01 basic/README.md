@@ -83,3 +83,59 @@ without a visible window using SDL's offscreen driver:
 cmake --build --preset release --target 01_basic_render_pass_tests
 SDL_VIDEODRIVER=offscreen ctest --test-dir build/release -R RenderPass --output-on-failure
 ```
+
+The asteroid-belt scene also grows billboard grass using compute and an indirect
+draw. Its named GPU buffers hold up to 512 × 512 grass roots and one 16-byte
+`DrawArraysIndirectCommand`. Each frame executes these scene commands after the
+terrain and before the water's depth/color snapshots:
+
+1. A storage barrier orders writes after the preceding frame's readers.
+2. `grass_reset` resets the indirect command in one compute invocation.
+3. A storage barrier makes the reset visible to `grass_place`.
+4. `grass_place` samples the persistent height texture, computes world-space
+   normals, and appends roots where the grass material has more than 50% weight.
+5. Storage and indirect-command barriers publish roots and the instance count.
+6. `grass` draws six procedural vertices per instance, with upright billboards,
+   cutout blade silhouettes, deterministic variation, and gentle wind movement.
+
+There is no CPU grass readback or per-frame buffer upload. The reset and placement
+are separate dispatches, and the shader bounds the number of candidates by the
+output capacity. The terrain and compute passes share their model transform via
+a YAML anchor. Material classification duplicates the same height/slope/noise
+formula in `terrain.asset.yaml` and `grass_place.asset.yaml`; keep those functions
+in sync. Classification uses stable world-space noise, while terrain color detail
+retains its derivative filtering. Roots below water level are rejected.
+
+`u_grassDensity` controls candidate acceptance (zero removes all grass), and
+`u_grassBladeHeight` controls billboard height. The existing terrain height and
+material sliders also update placement on the next frame. The grass participates
+in opaque depth/color, water refraction, and final depth-based fog.
+
+Render-pass definitions now accept optional named `buffers`, `dispatch`,
+`memory_barrier`, and `draw_indirect` commands. Shader assets accept `compute`
+sources. The library API and synchronization rules are described in
+[compute and indirect drawing](../../devkit/docs/compute_indirect.md).
+
+The grass rendering test uses terrain tessellation level 8. In the offscreen
+llvmpipe renderer, the scene's existing level 60 produces missing terrain patches;
+the interactive scene retains that setting and still needs hardware validation.
+
+Shore rocks use the same reset/compute/indirect sequence, with a much coarser
+96 × 96 candidate grid. Placement accepts seabed between 0.12 and 3.5 units below
+sea level and requires dry terrain within eight world units. Broad density noise
+leaves whole patches empty; `u_rockDensity` adjusts acceptance within those patches.
+`u_rockSize` scales the boulders. Each instance has deterministic shape deformation,
+unequal axis scales, yaw, tilt, and stone color variation. The draw shader builds
+an 80-triangle solid from a subdivided icosahedron and buries its base in the seabed.
+Some tops emerge while smaller or deeper rocks stay submerged. Rocks render before
+the opaque depth/color snapshots, so the existing water refraction and shoreline
+foam include them. Placement and draw counts stay on the GPU.
+
+```sh
+cmake --build build/debug --target devkit_gfx_tests 01_basic_render_pass_tests
+SDL_VIDEODRIVER=offscreen ctest --test-dir build/debug -R 'ComputeTest|GrassTest' --output-on-failure
+# Optional screenshot from the grass render test:
+SDL_VIDEODRIVER=offscreen DEVKIT_GRASS_CAPTURE=/tmp/devkit-grass.png \
+  build/debug/examples/01\ basic/01_basic_render_pass_tests \
+  --gtest_filter=GrassTest.RendersBillboardsInTheOpaquePass
+```

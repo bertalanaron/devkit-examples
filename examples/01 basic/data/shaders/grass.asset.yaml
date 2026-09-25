@@ -1,0 +1,57 @@
+asset_type: shader
+asset_data:
+  source_location: inplace
+  vertex: |
+    #version 430 core
+    layout(std430, binding = 0) readonly buffer Instances { vec4 roots[]; };
+    struct Camera { mat4 VP; vec3 position; }; uniform Camera u_camera;
+    uniform float u_grassBladeHeight;
+    uniform float u_t;
+    out vec2 UV;
+    out float variation;
+
+    const vec2 corners[6] = vec2[](
+        vec2(-0.5, 0), vec2(0.5, 0), vec2(0.5, 1),
+        vec2(-0.5, 0), vec2(0.5, 1), vec2(-0.5, 1));
+
+    void main()
+    {
+        vec4 root = roots[gl_InstanceID];
+        vec2 corner = corners[gl_VertexID];
+        vec3 towardCamera = vec3(u_camera.position.x - root.x, 0, u_camera.position.z - root.z);
+        vec3 right = length(towardCamera) > 0.0001
+            ? normalize(cross(vec3(0, 1, 0), towardCamera)) : vec3(1, 0, 0);
+        float height = max(u_grassBladeHeight, 0.01) * root.w;
+        float sway = sin(u_t * 1.8 + root.x * 0.7 + root.z * 0.45) * 0.12;
+        vec3 world = root.xyz + vec3(0, -0.025 + corner.y * height, 0)
+                   + right * height * (corner.x * 0.9 + sway * corner.y * corner.y);
+        UV = corner + vec2(0.5, 0);
+        variation = fract(sin(dot(root.xz, vec2(12.9898, 78.233))) * 43758.5453);
+        gl_Position = vec4(world, 1.0) * u_camera.VP;
+    }
+
+  fragment: |
+    #version 430 core
+    in vec2 UV;
+    in float variation;
+    out vec4 FragColor;
+
+    void main()
+    {
+        // Five tapered, curved blades form an alpha-cutout billboard clump.
+        float coverage = 0.0;
+        for (int blade = 0; blade < 5; ++blade) {
+            float b = float(blade);
+            float height = 0.65 + 0.35 * fract(b * 0.618 + variation);
+            float t = UV.y / height;
+            float center = 0.18 + b * 0.16 + (b - 2.0) * 0.035 * t * t;
+            float width = 0.038 * max(1.0 - t, 0.0);
+            float edge = max(fwidth(UV.x), 0.001);
+            float mask = 1.0 - smoothstep(width - edge, width + edge, abs(UV.x - center));
+            coverage = max(coverage, mask * (1.0 - smoothstep(0.95, 1.0, t)));
+        }
+        if (coverage < 0.5) discard;
+        vec3 base = mix(vec3(0.10, 0.23, 0.025), vec3(0.22, 0.36, 0.055), variation);
+        vec3 tip = mix(vec3(0.34, 0.48, 0.09), vec3(0.48, 0.56, 0.16), variation);
+        FragColor = vec4(mix(base, tip, UV.y) * mix(0.65, 1.0, UV.y), 1.0);
+    }

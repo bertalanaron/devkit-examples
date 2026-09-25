@@ -202,6 +202,56 @@ glm::mat4 transform_matrix(
 
 } // namespace
 
+namespace {
+void bind_storage_buffers(dk::gfx::Shader& shader, Runtime& runtime,
+	const std::optional<std::vector<primitives::ShaderStorageBinding>>& bindings)
+{
+	shader.storageBuffers().clear();
+	if (bindings)
+		for (const auto& binding : *bindings)
+			shader.storageBuffers().bind(binding.binding, runtime.buffer_view(binding.buffer));
+}
+}
+
+void draw_calls::ComputeDispatch::execute(RenderContext& context, Runtime& runtime) const
+{
+	auto& program = runtime.shader(context, shader);
+	bind_storage_buffers(program, runtime, storage_buffers);
+	set_shader_uniforms(program, context, runtime, *this);
+	if (model_uniform)
+		program.uniforms().set(*model_uniform, transform_matrix(transforms.value_or(
+			std::vector<primitives::transforms::Transform>{})));
+	dk::gfx::dispatch(program, {groups[0], groups[1], groups[2]});
+}
+
+void draw_calls::MemoryBarrier::execute(RenderContext&, Runtime&) const
+{
+	auto flags = dk::gfx::Barrier::None;
+	for (auto barrier : barriers) flags = flags | barrier;
+	dk::gfx::memoryBarrier(flags);
+}
+
+void draw_calls::IndirectDrawCall::execute(RenderContext& context, Runtime& runtime) const
+{
+	auto& program = runtime.shader(context, shader);
+	bind_storage_buffers(program, runtime, storage_buffers);
+	set_shader_uniforms(program, context, runtime, *this);
+	if (time_uniform) program.uniforms().set(*time_uniform, context.time);
+	const dk::gfx::IndirectDraws draws{
+		runtime.buffer_view(commands), draw_count.value_or(1), stride_bytes.value_or(0)};
+	auto& output = runtime.frame_buffer(output_buffer);
+	if (mesh) {
+		auto& factory = context.assets[mesh->source].as<dk::gfx::Scene::MeshFactory>();
+		auto& masked = factory(mesh->vertices);
+		program.layout(masked);
+		output.renderIndirect(program, masked.indices.view(), gl_primitive, draws);
+	}
+	else {
+		program.layout();
+		output.renderIndirect(program, gl_primitive, draws);
+	}
+}
+
 void draw_calls::Clear::execute(RenderContext&, Runtime& runtime) const
 {
 	const auto clear_color = color.transform([](const auto& value) {

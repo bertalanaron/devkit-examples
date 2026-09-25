@@ -45,7 +45,7 @@ asset_data:
         vec3 direction;
     }; uniform Sun u_sun;
 
-    uniform sampler2DArray u_shadowMap;
+    uniform sampler2DArrayShadow u_shadowMap;
     uniform bool u_showCascades;
     uniform bool u_shadows;
 
@@ -74,7 +74,7 @@ asset_data:
                 if (any(lessThan(tap, vec2(0.0))) || any(greaterThanEqual(tap, vec2(1.0))))
                     lit += 1.0;
                 else
-                    lit += uv.z - bias <= texture(u_shadowMap, vec3(tap, cascade)).r ? 1.0 : 0.0;
+                    lit += texture(u_shadowMap, vec4(tap, float(cascade), uv.z - bias));
             }
         }
         return lit / 9.0;

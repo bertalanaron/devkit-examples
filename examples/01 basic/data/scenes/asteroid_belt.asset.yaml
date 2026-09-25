@@ -1,6 +1,18 @@
 ---
 asset_type: render_pass
 asset_data:
+  buffers:
+    # 512 x 512 candidates, one std430 vec4 per accepted grass root.
+    grass_instances:
+      size_bytes: 4194304
+    grass_commands:
+      size_bytes: 16
+    # 96 x 96 candidates; three std430 vec4s per accepted shore rock.
+    rock_instances:
+      size_bytes: 442368
+    rock_commands:
+      size_bytes: 16
+
   textures:
     # Named textures keep their size and contents when the window is resized.
     height_map:
@@ -75,9 +87,33 @@ asset_data:
     fov: 1.0
 
   gui_uniforms:
+    - name: u_rockDensity
+      type: float
+      range: [0, 1]
+      step: 0.01
+      default: 0.46
+
+    - name: u_rockSize
+      type: float
+      range: [0.25, 2]
+      step: 0.05
+      default: 0.5
+
+    - name: u_grassDensity
+      type: float
+      range: [0, 1]
+      step: 0.01
+      default: 1.0
+
+    - name: u_grassBladeHeight
+      type: float
+      range: [0.1, 3]
+      step: 0.05
+      default: 2.25
+
     - name: u_terrainHeight
       type: float
-      range: [0, 80]
+      range: [0, 120]
       step: 0.1
       default: 80
 
@@ -92,7 +128,7 @@ asset_data:
       type: float
       range: [-10, 80]
       step: 0.1
-      default: 2
+      default: 1.2
 
     # Dot(normal, sky): 1 is horizontal ground, 0 is a vertical cliff.
     # Higher thresholds cover more slopes with stone.
@@ -100,7 +136,7 @@ asset_data:
       type: float
       range: [0, 1]
       step: 0.01
-      default: 0.85
+      default: 0.65
 
     # Maximum height offset of the noisy sand/grass boundary; zero disables it.
     - name: u_materialNoiseAmount
@@ -180,7 +216,7 @@ asset_data:
       type: float
       range: [0, 3]
       step: 0.01
-      default: 1.0
+      default: 2.0
 
     - name: u_foamWidth
       type: float
@@ -237,10 +273,112 @@ asset_data:
       - u_tessNear
       - u_tessFar
       model_uniform: u_M
-      transforms:
+      transforms: &terrain_transform
       # Keep the map edges deep enough to blend into the surrounding ocean.
       - translate: [0, -20, 0]
       - scale: [244, 1, 244]
+
+    # Order this frame's SSBO writes after the previous frame's grass reads.
+    - type: memory_barrier
+      barriers: [ShaderStorage]
+
+    - type: dispatch
+      shader: shaders/grass_reset
+      groups: [1, 1, 1]
+      storage_buffers:
+        - binding: 1
+          buffer: {name: grass_commands}
+
+    # Reset is a separate dispatch: no cross-workgroup synchronization needed.
+    - type: memory_barrier
+      barriers: [ShaderStorage]
+
+    - type: dispatch
+      shader: shaders/grass_place
+      groups: [64, 64, 1]
+      storage_buffers:
+        - binding: 0
+          buffer: {name: grass_instances}
+        - binding: 1
+          buffer: {name: grass_commands}
+      uniform_textures:
+        - uniform: u_heightMap
+          name: height_map
+          config: {MinFilter: Linear, MagFilter: Linear}
+      gui_uniforms:
+        - u_terrainHeight
+        - u_grassHeight
+        - u_stoneNormalThreshold
+        - u_materialNoiseAmount
+        - u_materialNoiseScale
+        - u_grassDensity
+      model_uniform: u_M
+      transforms: *terrain_transform
+
+    - type: memory_barrier
+      barriers: [IndirectCommand, ShaderStorage]
+
+    - type: draw_indirect
+      gl_primitive: Triangles
+      output_buffer: scene_buffer
+      shader: shaders/grass
+      commands: {name: grass_commands}
+      storage_buffers:
+        - binding: 0
+          buffer: {name: grass_instances}
+      uniform_cameras:
+        - name: default_camera
+          uniform: u_camera
+          uniform_members: [VP, position]
+      gui_uniforms: [u_grassBladeHeight]
+      time_uniform: u_t
+
+    # Sparse shore rocks share the GPU reset/place/indirect workflow. Draw them
+    # before both opaque snapshots so water can refract and foam around them.
+    - type: memory_barrier
+      barriers: [ShaderStorage]
+
+    - type: dispatch
+      shader: shaders/rocks_reset
+      groups: [1, 1, 1]
+      storage_buffers:
+        - binding: 1
+          buffer: {name: rock_commands}
+
+    - type: memory_barrier
+      barriers: [ShaderStorage]
+
+    - type: dispatch
+      shader: shaders/rocks_place
+      groups: [12, 12, 1]
+      storage_buffers:
+        - binding: 0
+          buffer: {name: rock_instances}
+        - binding: 1
+          buffer: {name: rock_commands}
+      uniform_textures:
+        - uniform: u_heightMap
+          name: height_map
+          config: {MinFilter: Linear, MagFilter: Linear}
+      gui_uniforms: [u_terrainHeight, u_rockDensity, u_rockSize]
+      model_uniform: u_M
+      transforms: *terrain_transform
+
+    - type: memory_barrier
+      barriers: [IndirectCommand, ShaderStorage]
+
+    - type: draw_indirect
+      gl_primitive: Triangles
+      output_buffer: scene_buffer
+      shader: shaders/rocks
+      commands: {name: rock_commands}
+      storage_buffers:
+        - binding: 0
+          buffer: {name: rock_instances}
+      uniform_cameras:
+        - name: default_camera
+          uniform: u_camera
+          uniform_members: [VP, position]
 
     - input_buffer: scene_buffer
       output_buffer: scene_depth
@@ -349,6 +487,8 @@ asset_data:
         uniform_members:
         - nearPlane
         - farPlane
+        - VP
+        - position
 
 #    - type: blit
 #      input_buffer: height_map_buffer

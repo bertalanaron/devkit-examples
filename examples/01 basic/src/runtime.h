@@ -48,6 +48,9 @@ public:
 	const std::vector<float>& cascade_splits(const std::string& name) const;
 
 	void reset();
+	void initialize_buffers(const std::optional<std::map<std::string, primitives::BufferDefinition>>& definitions);
+	dk::gfx::Buffer& buffer(const std::string& name);
+	dk::gfx::BufferView buffer_view(const primitives::BufferReference& reference);
 
 private:
 	struct MainCameraRuntime {
@@ -68,6 +71,7 @@ private:
 	std::unordered_map<std::string, dk::gfx::FrameBuffer*> m_frame_buffer_views;
 	std::unordered_map<std::string, std::unique_ptr<Texture>> m_textures;
 	std::unordered_map<std::string, CameraRuntime> m_cameras;
+	std::unordered_map<std::string, dk::gfx::Buffer> m_buffers;
 
 	void create_texture(const std::string& name, const primitives::textures::TextureDefinition& definition);
 	void create_frame_buffer(
@@ -89,6 +93,7 @@ private:
 };
 
 struct RenderPass {
+	std::optional<std::map<std::string, primitives::BufferDefinition>> buffers;
 	primitives::TextureCollectionDefinition textures;
 	primitives::FrameBufferCollectionDefinition frame_buffers;
 	std::vector<primitives::CameraBinding> cameras;

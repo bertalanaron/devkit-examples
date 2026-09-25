@@ -28,6 +28,7 @@ if(BUILD_TESTING AND DEVKIT_EXAMPLES_BUILD_DEVKIT_TESTS)
 
     create_example(01_basic_render_pass_tests
         tests/render_pass_test.cpp
+        tests/grass_test.cpp
         src/runtime.cpp src/draw_calls.cpp src/render_context.cpp src/csm.cpp)
     target_link_libraries(01_basic_render_pass_tests PRIVATE GTest::gtest_main)
     gtest_discover_tests(01_basic_render_pass_tests)
