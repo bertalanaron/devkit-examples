@@ -1,9 +1,14 @@
 # devkit examples
 
-The basic example draws meshes through GPU index views. The new-terrain example
-uploads its patch vertices once to a `dk::gfx::Buffer`, then shares a vertex view
-between the shadow and main passes. Existing `VertexSink` drawing uses the same
-buffer storage internally. See [GPU buffer usage and lifetime rules](devkit/docs/gpu_buffers.md).
+The repository contains two examples, both enabled by default:
+
+- [`shader_sandbox`](examples/shader_sandbox/README.md): the shader and render-pass sandbox.
+- `rts`: a starting point for an RTS, with the `rts_common` static library shared
+  by the `rts_client` and `rts_editor` executables. Both currently open an empty
+  window; press Escape to close it.
+
+Use `DEVKIT_EXAMPLES_BUILD_SHADER_SANDBOX` and `DEVKIT_EXAMPLES_BUILD_RTS` to
+enable or disable individual examples, or `DEVKIT_EXAMPLES_BUILD_ALL` to build both.
 
 ## Prerequisites
 
@@ -26,6 +31,12 @@ Configure and build one of the presets:
 ```bash
 cmake --preset debug
 cmake --build --preset debug
+```
+
+To build specific targets:
+
+```bash
+cmake --build --preset debug --target shader_sandbox rts_client rts_editor
 ```
 
 Other available presets:
